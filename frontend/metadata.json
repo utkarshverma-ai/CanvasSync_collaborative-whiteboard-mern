@@ -1,0 +1,5 @@
+
+{
+  "name": "CanvasSync - Collaborative Whiteboard",
+  "description": "A production-quality real-time collaborative whiteboard with MERN architecture, featuring stroke synchronization via Socket.IO, persistence, and multi-user presence."
+}
