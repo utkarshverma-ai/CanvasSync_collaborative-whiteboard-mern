@@ -16,6 +16,16 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.json());
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date(),
+    activeRooms: rooms.size,
+    totalConnections: io.engine.clientsCount
+  });
+});
+
 // Store active rooms and their data
 interface Stroke {
   id: string;

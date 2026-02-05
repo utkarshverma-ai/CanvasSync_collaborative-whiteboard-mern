@@ -53,7 +53,9 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
 
   // Initialize Socket.IO connection
   useEffect(() => {
-    const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:3002', {
+    const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:3002';
+    console.log('🔌 Connecting to Socket.IO:', socketUrl);
+    const socket = io(socketUrl, {
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
@@ -130,7 +132,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     return () => {
       socket.disconnect();
     };
-  }, []); // ✅ CRITICAL FIX: Empty dependency array - socket only created once
+  }, [roomId, userName]); // FIXED: Must include roomId and userName to rejoin on change
 
   const renderStroke = (ctx: CanvasRenderingContext2D, stroke: Stroke | null) => {
     if (!stroke || !stroke.points || stroke.points.length === 0) return;
