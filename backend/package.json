@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch server.ts",
-    "build": "npx tsc server.ts --module nodenext --moduleResolution nodenext --esModuleInterop --outDir .",
+    "build": "npx -p typescript tsc server.ts --module nodenext --moduleResolution nodenext --esModuleInterop --outDir .",
     "start": "node server.js"
   },
   "dependencies": {
