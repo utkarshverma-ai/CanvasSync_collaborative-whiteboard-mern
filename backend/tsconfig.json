@@ -6,8 +6,9 @@
     "lib": ["ES2022"],
     "types": ["node"],
     "esModuleInterop": true,
-    "outDir": "."
+    "rootDir": "src",
+    "outDir": "dist"
   },
-  "include": ["server.ts"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules"]
 }

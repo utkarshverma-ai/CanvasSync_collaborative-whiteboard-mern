@@ -126,7 +126,7 @@ async function waitForEmptyRooms() {
 before(async () => {
   const port = await getAvailablePort();
   backendUrl = `http://127.0.0.1:${port}`;
-  backend = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'server.ts'], {
+  backend = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'src/index.ts'], {
     cwd: process.cwd(),
     env: { ...process.env, PORT: String(port) },
     stdio: ['ignore', 'pipe', 'pipe']

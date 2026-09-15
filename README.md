@@ -164,8 +164,19 @@ CanvasSync_collaborative-whiteboard-mern/
 │   └── vite.config.ts
 │
 ├── backend/
-│   ├── server.ts
-│   ├── test-collaboration.js
+│   ├── src/
+│   │   ├── index.ts
+│   │   ├── rooms/
+│   │   │   ├── roomStore.ts
+│   │   │   └── types.ts
+│   │   ├── socket/
+│   │   │   └── registerWhiteboardHandlers.ts
+│   │   └── validation/
+│   │       └── socketValidation.ts
+│   ├── scripts/
+│   │   └── collaboration-smoke-test.js
+│   ├── test/
+│   │   └── collaboration.test.js
 │   └── package.json
 │
 └── README.md
@@ -260,7 +271,7 @@ Start the backend first and then run:
 
 ```bash
 cd backend
-node test-collaboration.js
+node scripts/collaboration-smoke-test.js
 ```
 
 The script checks whether connected clients can receive one another's drawing events.

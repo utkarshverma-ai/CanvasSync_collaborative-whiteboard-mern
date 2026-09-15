@@ -8,13 +8,9 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
+/dist/
 dist-ssr
 *.local
-/server.js
-/server.js.map
-/socketValidation.js
-/socketValidation.js.map
 
 # Editor directories and files
 .vscode/*

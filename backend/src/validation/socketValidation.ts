@@ -1,3 +1,5 @@
+import { Stroke } from '../rooms/types.js';
+
 export const MAX_ROOM_ID_LENGTH = 100;
 export const MAX_USERNAME_LENGTH = 80;
 export const MAX_STROKE_ID_LENGTH = 100;
@@ -7,15 +9,6 @@ export const MAX_BRUSH_WIDTH = 50;
 
 const supportedTools = new Set(['pen', 'eraser', 'rect', 'circle', 'line']);
 const hexColorPattern = /^#[0-9a-fA-F]{6}$/;
-
-export interface Stroke {
-  id: string;
-  userId: string;
-  tool: string;
-  color: string;
-  width: number;
-  points: { x: number; y: number }[];
-}
 
 interface JoinRoomPayload {
   roomId: string;

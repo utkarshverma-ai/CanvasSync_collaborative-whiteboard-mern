@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch server.ts",
+    "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node server.js",
+    "start": "node dist/index.js",
     "test": "node --test test/collaboration.test.js"
   },
   "dependencies": {
