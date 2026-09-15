@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Stroke, UserPresence } from '../types';
 
@@ -17,6 +17,8 @@ interface UseRoomSocketOptions extends RoomSocketHandlers {
   userColor: string;
 }
 
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+
 export function useRoomSocket({
   roomId,
   userName,
@@ -30,6 +32,7 @@ export function useRoomSocket({
 }: UseRoomSocketOptions) {
   const socketRef = useRef<Socket | null>(null);
   const userIdRef = useRef('me');
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
 
   useEffect(() => {
     const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:3002';
@@ -41,6 +44,7 @@ export function useRoomSocket({
     });
 
     socketRef.current = socket;
+    setConnectionStatus('connecting');
 
     const joinRoom = () => {
       socket.emit('join-room', { roomId, userName, userColor });
@@ -48,10 +52,16 @@ export function useRoomSocket({
 
     const onConnect = () => {
       userIdRef.current = socket.id;
+      setConnectionStatus('connected');
       joinRoom();
     };
 
+    const onDisconnect = () => {
+      setConnectionStatus('disconnected');
+    };
+
     socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
     socket.on('reconnect', joinRoom);
     socket.on('load-room', onRoomLoaded);
     socket.on('remote-stroke', onRemoteStroke);
@@ -62,6 +72,7 @@ export function useRoomSocket({
 
     return () => {
       socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
       socket.off('reconnect', joinRoom);
       socket.off('load-room', onRoomLoaded);
       socket.off('remote-stroke', onRemoteStroke);
@@ -90,5 +101,5 @@ export function useRoomSocket({
 
   const isSocketAvailable = useCallback(() => socketRef.current !== null, []);
 
-  return { userIdRef, emitCompletedStroke, requestUndo, requestRedo, isSocketAvailable };
+  return { userIdRef, emitCompletedStroke, requestUndo, requestRedo, isSocketAvailable, connectionStatus };
 }

@@ -82,7 +82,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     }
   }, []);
 
-  const { userIdRef, emitCompletedStroke, requestUndo, requestRedo, isSocketAvailable } = useRoomSocket({
+  const { userIdRef, emitCompletedStroke, requestUndo, requestRedo, isSocketAvailable, connectionStatus } = useRoomSocket({
     roomId,
     userName,
     userColor: userColorRef.current,
@@ -119,6 +119,9 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     requestRedo(stroke.id);
   }, [isSocketAvailable, redoStack, requestRedo]);
 
+  const canUndo = Boolean(findLatestOwnedStroke(strokes, userIdRef.current));
+  const canRedo = redoStack.length > 0;
+
   const exportPng = useCallback(() => {
     canvasBoardRef.current?.exportPng(`whiteboard-${roomId}.png`);
   }, [roomId]);
@@ -128,7 +131,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(url);
-        setNotification({ msg: 'Link copied to clipboard!', type: 'success' });
+        setNotification({ msg: 'Invite link copied.', type: 'success' });
         return;
       }
       throw new Error('Clipboard API unavailable');
@@ -153,34 +156,42 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
           throw new Error('execCommand returned false');
         }
         document.body.removeChild(textArea);
-        setNotification({ msg: 'Link copied to clipboard!', type: 'success' });
+        setNotification({ msg: 'Invite link copied.', type: 'success' });
       } catch (fallbackError: unknown) {
         console.error('All copy methods failed:', fallbackError);
-        setNotification({ msg: 'Copy failed. Please copy manually from the prompt.', type: 'error' });
+        setNotification({ msg: 'Could not copy the invite link.', type: 'error' });
         prompt('Copy this invite link:', url);
       }
     }
   };
 
   return (
-    <div className="canvas-container bg-slate-50 relative">
+    <div className="canvas-container workspace-shell">
       {notification && (
-        <div className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-[60] px-6 py-3 rounded-full shadow-xl text-white font-medium text-sm transition-all animate-fade-in-down ${notification.type === 'success' ? 'bg-emerald-500' : 'bg-rose-500'}`}>
-          <i className={`fa-solid mr-2 ${notification.type === 'success' ? 'fa-check' : 'fa-triangle-exclamation'}`}></i>
+        <div className={`workspace-toast ${notification.type === 'success' ? 'is-success' : 'is-error'}`} role="status">
+          <i className={`fa-solid ${notification.type === 'success' ? 'fa-check' : 'fa-triangle-exclamation'}`} aria-hidden="true"></i>
           {notification.msg}
         </div>
       )}
-      <div className="fixed top-6 left-6 z-50 flex items-center gap-4">
-        <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-200">
-          <i className="fa-solid fa-signature text-white"></i>
+      <header className="workspace-header">
+        <div className="workspace-brand">
+          <div className="workspace-mark" aria-hidden="true">
+            <i className="fa-solid fa-signature"></i>
+          </div>
+          <div className="workspace-title">
+            <span className="workspace-product-name">CanvasSync</span>
+            <span className="workspace-room-name">Board · {roomId}</span>
+          </div>
+          <span className={`connection-status is-${connectionStatus}`} role="status">
+            <span className="connection-status-dot" aria-hidden="true"></span>
+            <span className="connection-status-label">
+              {connectionStatus === 'connected' ? 'Connected' : connectionStatus === 'connecting' ? 'Connecting' : 'Disconnected'}
+            </span>
+          </span>
         </div>
-        <div className="flex flex-col">
-          <span className="text-sm font-bold text-slate-800">CanvasSync</span>
-          <span className="text-[10px] text-slate-400 font-medium uppercase tracking-tighter">Room: {roomId}</span>
-        </div>
-      </div>
+        <Collaborators users={collaborators} onInvite={inviteCollaborator} />
+      </header>
 
-      <Collaborators users={collaborators} onInvite={inviteCollaborator} />
       <CanvasBoard
         ref={canvasBoardRef}
         strokes={strokes}
@@ -190,6 +201,12 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
         getUserId={getUserId}
         onCompletedStroke={handleCompletedStroke}
       />
+      {strokes.length === 0 && (
+        <div className="workspace-empty-state" aria-hidden="true">
+          <strong>Start drawing</strong>
+          <span>Choose a tool below and sketch something together.</span>
+        </div>
+      )}
       <Toolbar
         activeTool={tool}
         setTool={setTool}
@@ -197,6 +214,8 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
         setColor={setColor}
         width={width}
         setWidth={setWidth}
+        canUndo={canUndo}
+        canRedo={canRedo}
         undo={undo}
         redo={redo}
         exportPng={exportPng}
