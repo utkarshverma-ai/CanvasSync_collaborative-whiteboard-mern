@@ -27,56 +27,55 @@ const App: React.FC = () => {
 
   if (!isJoined) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <div className="w-full max-w-md p-8 glass rounded-2xl shadow-xl">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-200">
-              <i className="fa-solid fa-signature text-3xl text-white"></i>
+      <main className="entry-page">
+        <section className="entry-surface" aria-labelledby="entry-heading">
+          <div className="entry-brand">
+            <div className="entry-mark" aria-hidden="true">
+              <i className="fa-solid fa-signature"></i>
             </div>
-            <h1 className="text-2xl font-bold text-slate-800">CanvasSync</h1>
-            <p className="text-slate-500 mt-2">Real-time collaborative whiteboard</p>
+            <p className="entry-product-name">CanvasSync</p>
+            <h1 id="entry-heading">A shared space for quick ideas.</h1>
           </div>
 
-          <form onSubmit={handleJoin} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Your Name</label>
+          <form onSubmit={handleJoin} className="entry-form">
+            <div className="entry-field">
+              <label htmlFor="user-name">Your name</label>
               <input
+                id="user-name"
                 type="text"
                 value={userName}
                 onChange={(e) => setUserName(e.target.value)}
-                placeholder="Enter your name"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                placeholder="e.g. Utkarsh"
+                className="entry-input"
+                autoComplete="name"
                 required
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Room ID (Optional)</label>
+            <div className="entry-field">
+              <label htmlFor="room-id">Room ID</label>
               <input
+                id="room-id"
                 type="text"
                 value={roomId || ''}
                 onChange={(e) => setRoomId(e.target.value)}
-                placeholder="New or existing room ID"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                placeholder="Enter a room ID"
+                className="entry-input"
               />
+              <p className="entry-field-help">
+                {roomId ? 'You’re joining an existing board.' : 'Leave blank to create a new board.'}
+              </p>
             </div>
             <button
               type="submit"
-              className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100"
+              className="entry-submit"
             >
-              {roomId ? 'Join Workspace' : 'Create Workspace'}
+              {roomId ? 'Join board' : 'Create board'}
             </button>
           </form>
 
-          <div className="mt-8 pt-6 border-t border-slate-100 text-center">
-            <p className="text-xs text-slate-400 uppercase tracking-widest font-semibold">Technical Architecture</p>
-            <div className="flex justify-center gap-4 mt-4 text-slate-500 text-sm">
-              <div className="flex items-center gap-1"><i className="fa-solid fa-bolt text-amber-500"></i> Socket.IO</div>
-              <div className="flex items-center gap-1"><i className="fa-solid fa-database text-green-500"></i> In-memory rooms</div>
-              <div className="flex items-center gap-1"><i className="fa-solid fa-code text-blue-500"></i> TypeScript</div>
-            </div>
-          </div>
-        </div>
-      </div>
+          <p className="entry-footer">Share the invite link once you’re inside.</p>
+        </section>
+      </main>
     );
   }
 

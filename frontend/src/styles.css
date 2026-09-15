@@ -1,0 +1,245 @@
+@import "tailwindcss";
+
+:root {
+  --app-bg: #f3f5f7;
+  --canvas-bg: #fcfdfd;
+
+  --surface: #ffffff;
+  --surface-subtle: #f8fafc;
+  --surface-hover: #f5f7fa;
+
+  --text-primary: #182230;
+  --text-secondary: #667085;
+  --text-muted: #98a2b3;
+
+  --border: #e4e7ec;
+  --border-strong: #d0d5dd;
+
+  --accent: #3157e7;
+  --accent-hover: #274acb;
+  --accent-soft: #eef2ff;
+
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #c53030;
+
+  --grid: #e8ecf1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--app-bg);
+  color: var(--text-primary);
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: 2px;
+}
+
+canvas {
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.canvas-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+.animate-fade-in-down {
+  animation: fade-in-down 180ms ease-out both;
+}
+
+@keyframes fade-in-down {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.entry-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: var(--app-bg);
+}
+
+.entry-surface {
+  width: min(100%, 430px);
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 10px 30px rgba(16, 24, 40, 0.07);
+}
+
+.entry-brand {
+  margin-bottom: 32px;
+  text-align: center;
+}
+
+.entry-mark {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 16px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 20px;
+}
+
+.entry-product-name {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.entry-brand h1 {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.entry-form {
+  display: grid;
+  gap: 20px;
+}
+
+.entry-field {
+  display: grid;
+  gap: 8px;
+}
+
+.entry-field label {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.25;
+}
+
+.entry-input {
+  width: 100%;
+  height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.entry-input::placeholder {
+  color: var(--text-muted);
+}
+
+.entry-input:hover {
+  border-color: #b8c0cc;
+}
+
+.entry-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+  outline: none;
+}
+
+.entry-field-help {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.entry-submit {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--accent);
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.25;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.entry-submit:hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.entry-submit:active {
+  transform: translateY(1px);
+}
+
+.entry-submit:disabled {
+  border-color: var(--border);
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.entry-footer {
+  margin: 24px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+@media (max-width: 480px) {
+  .entry-page {
+    padding: 16px;
+  }
+
+  .entry-surface {
+    padding: 24px;
+  }
+
+  .entry-brand {
+    margin-bottom: 24px;
+  }
+
+  .entry-product-name {
+    font-size: 20px;
+  }
+
+  .entry-brand h1 {
+    font-size: 15px;
+  }
+}
