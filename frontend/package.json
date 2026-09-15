@@ -9,7 +9,7 @@
     "dev:server": "tsx watch server.ts",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test utils/findLatestOwnedStroke.test.js"
+    "test": "node --test src/utils/findLatestOwnedStroke.test.js"
   },
   "dependencies": {
     "react": "^19.2.4",

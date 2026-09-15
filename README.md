@@ -145,14 +145,21 @@ This creates a synchronized collaborative drawing experience without continuousl
 CanvasSync_collaborative-whiteboard-mern/
 │
 ├── frontend/
-│   ├── components/
-│   │   ├── Whiteboard.tsx
-│   │   ├── Toolbar.tsx
-│   │   └── Collaborators.tsx
-│   │
-│   ├── App.tsx
-│   ├── index.tsx
-│   ├── types.ts
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── CanvasBoard.tsx
+│   │   │   ├── Collaborators.tsx
+│   │   │   ├── Toolbar.tsx
+│   │   │   └── Whiteboard.tsx
+│   │   ├── hooks/
+│   │   │   └── useRoomSocket.ts
+│   │   ├── utils/
+│   │   │   ├── canvasRenderer.ts
+│   │   │   └── findLatestOwnedStroke.js
+│   │   ├── App.tsx
+│   │   ├── main.tsx
+│   │   └── types.ts
+│   ├── index.html
 │   ├── package.json
 │   └── vite.config.ts
 │
