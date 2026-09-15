@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { io } from 'socket.io-client';
 
 const EVENT_TIMEOUT_MS = 2_000;
+const NEGATIVE_EVENT_WINDOW_MS = 100;
 let backend;
 let backendUrl;
 const clients = new Set();
@@ -61,6 +62,27 @@ function waitForServer(process) {
 
 function waitForEvent(socket, event) {
   return withTimeout(new Promise(resolve => socket.once(event, resolve)), `${event} event`);
+}
+
+function expectNoEvent(socket, event, trigger) {
+  return new Promise((resolve, reject) => {
+    let timeout;
+    const onEvent = () => {
+      cleanup();
+      reject(new Error(`Unexpected ${event} event`));
+    };
+    const cleanup = () => {
+      clearTimeout(timeout);
+      socket.off(event, onEvent);
+    };
+
+    socket.once(event, onEvent);
+    trigger();
+    timeout = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, NEGATIVE_EVENT_WINDOW_MS);
+  });
 }
 
 async function connectClient() {
@@ -436,6 +458,113 @@ test('preserves a user’s redo history when a collaborator draws', async () => 
 
   const lateJoiner = await joinRoom(await connectClient(), roomId, 'Charlie', '#10b981');
   assert.deepEqual(lateJoiner.strokes.map(stroke => stroke.id), [bobStroke.id, aliceStroke.id]);
+
+  await Promise.all([...clients].map(disconnectClient));
+  await waitForEmptyRooms();
+});
+
+test('rejects malformed, unjoined, and cross-room room mutations', async () => {
+  const attacker = await connectClient();
+  await expectNoEvent(attacker, 'load-room', () => {
+    attacker.emit('join-room', { roomId: '   ', userName: 'Attacker', userColor: '#000000' });
+  });
+  const healthAfterInvalidJoin = await fetch(`${backendUrl}/health`).then(response => response.json());
+  assert.equal(healthAfterInvalidJoin.activeRooms, 0);
+
+  const roomOne = `protected-${Date.now()}`;
+  const roomTwo = `other-${Date.now()}`;
+  const alice = await connectClient();
+  await joinRoom(alice, roomOne, 'Alice', '#3b82f6');
+  const witness = await connectClient();
+  await joinRoom(witness, roomOne, 'Witness', '#10b981');
+  const bob = await connectClient();
+  await joinRoom(bob, roomTwo, 'Bob', '#ef4444');
+
+  const protectedStroke = {
+    id: `protected-stroke-${Date.now()}`,
+    userId: 'ignored-by-server',
+    tool: 'pen',
+    color: '#000000',
+    width: 5,
+    points: [{ x: 1, y: 1 }, { x: 2, y: 2 }]
+  };
+  const witnessReceivesStroke = waitForEvent(witness, 'remote-stroke');
+  alice.emit('draw-stroke', { roomId: roomOne, stroke: protectedStroke });
+  await witnessReceivesStroke;
+
+  await expectNoEvent(witness, 'remote-stroke', () => {
+    attacker.emit('draw-stroke', { roomId: roomOne, stroke: { ...protectedStroke, id: 'attacker-stroke' } });
+  });
+  await expectNoEvent(bob, 'remote-stroke', () => {
+    alice.emit('draw-stroke', { roomId: roomTwo, stroke: { ...protectedStroke, id: 'cross-room-stroke' } });
+  });
+
+  const roomTwoWitness = await connectClient();
+  await joinRoom(roomTwoWitness, roomTwo, 'Room two witness', '#8b5cf6');
+  const roomTwoStroke = { ...protectedStroke, id: `room-two-stroke-${Date.now()}`, color: '#ef4444' };
+  const roomTwoWitnessReceivesStroke = waitForEvent(roomTwoWitness, 'remote-stroke');
+  bob.emit('draw-stroke', { roomId: roomTwo, stroke: roomTwoStroke });
+  await roomTwoWitnessReceivesStroke;
+  await expectNoEvent(roomTwoWitness, 'undo-stroke-remote', () => {
+    alice.emit('undo-stroke', { roomId: roomTwo, strokeId: roomTwoStroke.id });
+  });
+
+  const roomTwoWitnessReceivesUndo = waitForEvent(roomTwoWitness, 'undo-stroke-remote');
+  bob.emit('undo-stroke', { roomId: roomTwo, strokeId: roomTwoStroke.id });
+  assert.equal(await roomTwoWitnessReceivesUndo, roomTwoStroke.id);
+  await expectNoEvent(roomTwoWitness, 'redo-stroke-remote', () => {
+    alice.emit('redo-stroke', { roomId: roomTwo, strokeId: roomTwoStroke.id });
+  });
+  const roomTwoWitnessReceivesRedo = waitForEvent(roomTwoWitness, 'redo-stroke-remote');
+  bob.emit('redo-stroke', { roomId: roomTwo, strokeId: roomTwoStroke.id });
+  assert.equal((await roomTwoWitnessReceivesRedo).id, roomTwoStroke.id);
+
+  const spoofedStroke = { ...protectedStroke, id: `spoofed-${Date.now()}`, userId: bob.id };
+  const witnessReceivesSpoofedStroke = waitForEvent(witness, 'remote-stroke');
+  alice.emit('draw-stroke', { roomId: roomOne, stroke: spoofedStroke });
+  assert.equal((await witnessReceivesSpoofedStroke).userId, alice.id);
+
+  const malformedStrokes = [
+    { ...protectedStroke, id: '' },
+    { ...protectedStroke, id: 'non-array-points', points: {} },
+    { ...protectedStroke, id: 'malformed-point', points: [{ x: '1', y: 2 }] },
+    { ...protectedStroke, id: 'non-finite-point', points: [{ x: Number.NaN, y: 2 }] },
+    { ...protectedStroke, id: 'unsupported-tool', tool: 'text' },
+    { ...protectedStroke, id: 'invalid-width', width: 0 },
+    { ...protectedStroke, id: 'too-many-points', points: Array.from({ length: 10_001 }, () => ({ x: 1, y: 1 })) }
+  ];
+  for (const stroke of malformedStrokes) {
+    await expectNoEvent(witness, 'remote-stroke', () => {
+      alice.emit('draw-stroke', { roomId: roomOne, stroke });
+    });
+  }
+
+  await expectNoEvent(witness, 'undo-stroke-remote', () => {
+    attacker.emit('undo-stroke', { roomId: roomOne, strokeId: protectedStroke.id });
+  });
+  await expectNoEvent(witness, 'undo-stroke-remote', () => {
+    bob.emit('undo-stroke', { roomId: roomOne, strokeId: protectedStroke.id });
+  });
+
+  const witnessReceivesUndo = waitForEvent(witness, 'undo-stroke-remote');
+  alice.emit('undo-stroke', { roomId: roomOne, strokeId: protectedStroke.id });
+  assert.equal(await witnessReceivesUndo, protectedStroke.id);
+
+  await expectNoEvent(witness, 'redo-stroke-remote', () => {
+    attacker.emit('redo-stroke', { roomId: roomOne, strokeId: protectedStroke.id });
+  });
+  await expectNoEvent(witness, 'redo-stroke-remote', () => {
+    bob.emit('redo-stroke', { roomId: roomOne, strokeId: protectedStroke.id });
+  });
+
+  const witnessReceivesRedo = waitForEvent(witness, 'redo-stroke-remote');
+  alice.emit('redo-stroke', { roomId: roomOne, strokeId: protectedStroke.id });
+  assert.equal((await witnessReceivesRedo).id, protectedStroke.id);
+
+  const roomOneState = await joinRoom(await connectClient(), roomOne, 'Verifier', '#f59e0b');
+  assert.deepEqual(roomOneState.strokes.map(stroke => stroke.id), [spoofedStroke.id, protectedStroke.id]);
+  const roomTwoState = await joinRoom(await connectClient(), roomTwo, 'Room two verifier', '#8b5cf6');
+  assert.deepEqual(roomTwoState.strokes.map(stroke => stroke.id), [roomTwoStroke.id]);
 
   await Promise.all([...clients].map(disconnectClient));
   await waitForEmptyRooms();

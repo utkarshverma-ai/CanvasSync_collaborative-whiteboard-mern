@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import { Server, Socket } from 'socket.io';
 import cors from 'cors';
+import { parseDrawStrokePayload, parseJoinRoomPayload, parseStrokeCommandPayload, type Stroke } from './socketValidation.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -26,16 +27,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Store active rooms and their data
-interface Stroke {
-  id: string;
-  userId: string;
-  tool: string;
-  color: string;
-  width: number;
-  points: { x: number; y: number }[];
-}
-
 interface Room {
   strokes: Stroke[];
   users: Map<string, { name: string; color: string }>;
@@ -48,8 +39,11 @@ io.on('connection', (socket: Socket) => {
   console.log(`Client connected: ${socket.id}`);
 
   // User joins a room
-  socket.on('join-room', (data: { roomId: string; userName: string; userColor: string }) => {
-    const { roomId, userName, userColor } = data;
+  socket.on('join-room', (data: unknown) => {
+    const joinData = parseJoinRoomPayload(data);
+    if (!joinData) return;
+
+    const { roomId, userName, userColor } = joinData;
     socket.join(roomId);
 
     // Initialize room if it doesn't exist
@@ -86,13 +80,14 @@ io.on('connection', (socket: Socket) => {
   });
 
   // Handle new strokes
-  socket.on('draw-stroke', (data: { roomId: string; stroke: Stroke }) => {
-    const { roomId, stroke } = data;
+  socket.on('draw-stroke', (data: unknown) => {
+    const drawData = parseDrawStrokePayload(data, socket.id);
+    if (!drawData || !socket.rooms.has(drawData.roomId)) return;
+
+    const { roomId, stroke } = drawData;
     const room = rooms.get(roomId);
 
     if (room) {
-      // Update userId to match the connected socket
-      stroke.userId = socket.id;
       room.strokes.push(stroke);
       room.redoStacks.delete(socket.id);
 
@@ -103,8 +98,11 @@ io.on('connection', (socket: Socket) => {
   });
 
   // Handle undo
-  socket.on('undo-stroke', (data: { roomId: string; strokeId: string }) => {
-    const { roomId, strokeId } = data;
+  socket.on('undo-stroke', (data: unknown) => {
+    const command = parseStrokeCommandPayload(data);
+    if (!command || !socket.rooms.has(command.roomId)) return;
+
+    const { roomId, strokeId } = command;
     const room = rooms.get(roomId);
 
     if (room) {
@@ -125,8 +123,11 @@ io.on('connection', (socket: Socket) => {
   });
 
   // Handle redo
-  socket.on('redo-stroke', (data: { roomId: string; strokeId: string }) => {
-    const { roomId, strokeId } = data;
+  socket.on('redo-stroke', (data: unknown) => {
+    const command = parseStrokeCommandPayload(data);
+    if (!command || !socket.rooms.has(command.roomId)) return;
+
+    const { roomId, strokeId } = command;
     const room = rooms.get(roomId);
     const redoStack = room?.redoStacks.get(socket.id);
     const stroke = redoStack?.[redoStack.length - 1];
