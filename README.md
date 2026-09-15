@@ -36,9 +36,9 @@ https://github.com/utkarshverma-ai/CanvasSync_collaborative-whiteboard-mern
 - Responsive HTML5 Canvas
 
 ### ↩️ Undo / Redo
-- Undo previously created strokes
-- Prevents users from remotely undoing another user's strokes
-- Local redo support
+- Server-authoritative undo for a user's own strokes
+- Server-authoritative collaborative redo with LIFO history
+- Prevents users from undoing another collaborator's strokes
 
 ### 🔗 Room-Based Sharing
 - Create a new collaborative workspace
@@ -104,7 +104,7 @@ https://github.com/utkarshverma-ai/CanvasSync_collaborative-whiteboard-mern
 └─────────────────────┘
 ```
 
-The backend maintains active rooms in memory and uses Socket.IO events to synchronize users and drawing operations.
+The backend maintains active rooms in memory and uses Socket.IO events to synchronize users and drawing operations. A room and its strokes are removed when its final participant disconnects.
 
 ---
 
@@ -136,6 +136,8 @@ This creates a synchronized collaborative drawing experience without continuousl
 | `user-left` | Notify clients when a collaborator leaves |
 | `undo-stroke` | Request removal of a user's own stroke |
 | `undo-stroke-remote` | Synchronize an undo across clients |
+| `redo-stroke` | Request restoration of the user's latest undone stroke |
+| `redo-stroke-remote` | Synchronize a confirmed redo across clients |
 
 ---
 
@@ -212,7 +214,7 @@ cd CanvasSync_collaborative-whiteboard-mern
 
 ```bash
 cd backend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -236,7 +238,8 @@ Open another terminal:
 
 ```bash
 cd frontend
-npm install
+cp .env.example .env
+npm ci
 npm run dev
 ```
 
@@ -260,6 +263,27 @@ The backend also supports:
 FRONTEND_URL=<your-frontend-url>
 PORT=<server-port>
 ```
+
+---
+
+## ✅ Verification
+
+Run the automated checks from each package:
+
+```bash
+cd frontend
+npm test
+npm run build
+```
+
+```bash
+cd backend
+npm run build
+npm test
+npm run start
+```
+
+`npm run start` runs the compiled backend from `dist/`.
 
 ---
 
@@ -324,6 +348,14 @@ Therefore, the current version provides **session-level collaboration rather tha
 
 ---
 
+# ⚠️ Current Limitations
+
+- Room state is in memory and is removed after the last participant leaves.
+- The application runs as a single server process; state is not shared between server instances.
+- Identity is scoped to the current Socket.IO connection; there is no authentication, durable user identity, or rate limiting.
+
+---
+
 # 🔮 Future Improvements
 
 Potential improvements include:
@@ -339,10 +371,8 @@ Potential improvements include:
 - Zoom and pan
 - Version history
 - Role-based room permissions
-- Synchronized redo
 - Redis-based scaling for multiple Socket.IO servers
 - Whiteboard sharing dashboard
-- Automated frontend and backend tests
 
 ---
 

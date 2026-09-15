@@ -5,8 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:full": "concurrently \"npm run dev:server\" \"npm run dev\"",
-    "dev:server": "tsx watch server.ts",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test src/utils/findLatestOwnedStroke.test.js"
