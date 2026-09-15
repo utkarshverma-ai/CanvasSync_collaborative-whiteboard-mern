@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import Toolbar from './Toolbar';
 import Collaborators from './Collaborators';
-import { Tool, Point, Stroke, UserPresence } from '../types';
+import { Tool, Stroke, UserPresence } from '../types';
 
 interface WhiteboardProps {
   roomId: string;
@@ -54,7 +54,6 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   // Initialize Socket.IO connection
   useEffect(() => {
     const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:3002';
-    console.log('🔌 Connecting to Socket.IO:', socketUrl);
     const socket = io(socketUrl, {
       reconnection: true,
       reconnectionDelay: 1000,
@@ -65,7 +64,6 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log(`Connected with ID: ${socket.id}`);
       userIdRef.current = socket.id;
 
       // Join the room with user info
@@ -78,7 +76,6 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
 
     // Handle reconnection - rejoin the room
     socket.on('reconnect', () => {
-      console.log('Reconnected, rejoining room...');
       socket.emit('join-room', {
         roomId,
         userName,
@@ -88,20 +85,17 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
 
     // Load existing room data
     socket.on('load-room', (data: { strokes: Stroke[]; users: UserPresence[] }) => {
-      console.log('Loaded room data:', data);
       setStrokes(data.strokes);
       setCollaborators(data.users);
     });
 
     // Receive remote strokes
     socket.on('remote-stroke', (stroke: Stroke) => {
-      console.log('Received remote stroke:', stroke);
       setStrokes(prev => [...prev, stroke]);
     });
 
     // Handle user joined
     socket.on('user-joined', (data: { userId: string; userName: string; userColor: string }) => {
-      console.log(`${data.userName} joined the room`);
       setCollaborators(prev => [
         ...prev,
         {
@@ -115,24 +109,21 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
 
     // Handle user left
     socket.on('user-left', (data: { userId: string; userName: string }) => {
-      console.log(`${data.userName} left the room`);
       setCollaborators(prev => prev.filter(u => u.id !== data.userId));
     });
 
     // Handle remote undo
     socket.on('undo-stroke-remote', (strokeId: string) => {
-      console.log('Remote undo for stroke:', strokeId);
       setStrokes(prev => prev.filter(s => s.id !== strokeId));
     });
 
     socket.on('disconnect', () => {
-      console.log('Disconnected from server');
     });
 
     return () => {
       socket.disconnect();
     };
-  }, [roomId, userName]); // FIXED: Must include roomId and userName to rejoin on change
+  }, [roomId, userName]);
 
   const renderStroke = (ctx: CanvasRenderingContext2D, stroke: Stroke | null) => {
     if (!stroke || !stroke.points || stroke.points.length === 0) return;
@@ -314,12 +305,9 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
 
   const inviteCollaborator = async () => {
     const url = window.location.href;
-    console.log('Attempting to copy URL:', url);
-
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(url);
-        console.log('Clipboard API success');
         setNotification({ msg: 'Link copied to clipboard!', type: 'success' });
         return;
       }
@@ -348,7 +336,6 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
         document.body.removeChild(textArea);
 
         if (successful) {
-          console.log('execCommand success');
           setNotification({ msg: 'Link copied to clipboard!', type: 'success' });
         } else {
           throw new Error('execCommand returned false');
