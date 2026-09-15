@@ -71,7 +71,7 @@ const App: React.FC = () => {
             <p className="text-xs text-slate-400 uppercase tracking-widest font-semibold">Technical Architecture</p>
             <div className="flex justify-center gap-4 mt-4 text-slate-500 text-sm">
               <div className="flex items-center gap-1"><i className="fa-solid fa-bolt text-amber-500"></i> Socket.IO</div>
-              <div className="flex items-center gap-1"><i className="fa-solid fa-database text-green-500"></i> MongoDB</div>
+              <div className="flex items-center gap-1"><i className="fa-solid fa-database text-green-500"></i> In-memory rooms</div>
               <div className="flex items-center gap-1"><i className="fa-solid fa-code text-blue-500"></i> TypeScript</div>
             </div>
           </div>

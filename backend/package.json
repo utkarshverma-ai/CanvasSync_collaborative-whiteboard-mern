@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch server.ts",
-    "build": "npx -p typescript tsc server.ts --module nodenext --moduleResolution nodenext --esModuleInterop --outDir .",
-    "start": "node server.js"
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "node --test test/collaboration.test.js"
   },
   "dependencies": {
     "cors": "^2.8.6",
@@ -16,7 +17,7 @@
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
+    "@types/express": "^4.17.25",
     "@types/node": "^25.2.0",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2"

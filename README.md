@@ -36,9 +36,9 @@ https://github.com/utkarshverma-ai/CanvasSync_collaborative-whiteboard-mern
 - Responsive HTML5 Canvas
 
 ### ↩️ Undo / Redo
-- Undo previously created strokes
-- Prevents users from remotely undoing another user's strokes
-- Local redo support
+- Server-authoritative undo for a user's own strokes
+- Server-authoritative collaborative redo with LIFO history
+- Prevents users from undoing another collaborator's strokes
 
 ### 🔗 Room-Based Sharing
 - Create a new collaborative workspace
@@ -104,7 +104,7 @@ https://github.com/utkarshverma-ai/CanvasSync_collaborative-whiteboard-mern
 └─────────────────────┘
 ```
 
-The backend maintains active rooms in memory and uses Socket.IO events to synchronize users and drawing operations.
+The backend maintains active rooms in memory and uses Socket.IO events to synchronize users and drawing operations. A room and its strokes are removed when its final participant disconnects.
 
 ---
 
@@ -136,6 +136,8 @@ This creates a synchronized collaborative drawing experience without continuousl
 | `user-left` | Notify clients when a collaborator leaves |
 | `undo-stroke` | Request removal of a user's own stroke |
 | `undo-stroke-remote` | Synchronize an undo across clients |
+| `redo-stroke` | Request restoration of the user's latest undone stroke |
+| `redo-stroke-remote` | Synchronize a confirmed redo across clients |
 
 ---
 
@@ -145,20 +147,38 @@ This creates a synchronized collaborative drawing experience without continuousl
 CanvasSync_collaborative-whiteboard-mern/
 │
 ├── frontend/
-│   ├── components/
-│   │   ├── Whiteboard.tsx
-│   │   ├── Toolbar.tsx
-│   │   └── Collaborators.tsx
-│   │
-│   ├── App.tsx
-│   ├── index.tsx
-│   ├── types.ts
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── CanvasBoard.tsx
+│   │   │   ├── Collaborators.tsx
+│   │   │   ├── Toolbar.tsx
+│   │   │   └── Whiteboard.tsx
+│   │   ├── hooks/
+│   │   │   └── useRoomSocket.ts
+│   │   ├── utils/
+│   │   │   ├── canvasRenderer.ts
+│   │   │   └── findLatestOwnedStroke.js
+│   │   ├── App.tsx
+│   │   ├── main.tsx
+│   │   └── types.ts
+│   ├── index.html
 │   ├── package.json
 │   └── vite.config.ts
 │
 ├── backend/
-│   ├── server.ts
-│   ├── test-collaboration.js
+│   ├── src/
+│   │   ├── index.ts
+│   │   ├── rooms/
+│   │   │   ├── roomStore.ts
+│   │   │   └── types.ts
+│   │   ├── socket/
+│   │   │   └── registerWhiteboardHandlers.ts
+│   │   └── validation/
+│   │       └── socketValidation.ts
+│   ├── scripts/
+│   │   └── collaboration-smoke-test.js
+│   ├── test/
+│   │   └── collaboration.test.js
 │   └── package.json
 │
 └── README.md
@@ -194,7 +214,7 @@ cd CanvasSync_collaborative-whiteboard-mern
 
 ```bash
 cd backend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -218,7 +238,8 @@ Open another terminal:
 
 ```bash
 cd frontend
-npm install
+cp .env.example .env
+npm ci
 npm run dev
 ```
 
@@ -245,6 +266,27 @@ PORT=<server-port>
 
 ---
 
+## ✅ Verification
+
+Run the automated checks from each package:
+
+```bash
+cd frontend
+npm test
+npm run build
+```
+
+```bash
+cd backend
+npm run build
+npm test
+npm run start
+```
+
+`npm run start` runs the compiled backend from `dist/`.
+
+---
+
 # 🧪 Collaboration Testing
 
 The backend contains a basic Socket.IO collaboration test script that simulates two users joining the same room and exchanging drawing strokes.
@@ -253,7 +295,7 @@ Start the backend first and then run:
 
 ```bash
 cd backend
-node test-collaboration.js
+node scripts/collaboration-smoke-test.js
 ```
 
 The script checks whether connected clients can receive one another's drawing events.
@@ -306,6 +348,14 @@ Therefore, the current version provides **session-level collaboration rather tha
 
 ---
 
+# ⚠️ Current Limitations
+
+- Room state is in memory and is removed after the last participant leaves.
+- The application runs as a single server process; state is not shared between server instances.
+- Identity is scoped to the current Socket.IO connection; there is no authentication, durable user identity, or rate limiting.
+
+---
+
 # 🔮 Future Improvements
 
 Potential improvements include:
@@ -321,10 +371,8 @@ Potential improvements include:
 - Zoom and pan
 - Version history
 - Role-based room permissions
-- Synchronized redo
 - Redis-based scaling for multiple Socket.IO servers
 - Whiteboard sharing dashboard
-- Automated frontend and backend tests
 
 ---
 
