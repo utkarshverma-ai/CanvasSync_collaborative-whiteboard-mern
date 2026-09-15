@@ -257,10 +257,11 @@ test('clears a room after its final participant leaves', async () => {
   const verifier = await connectClient();
   await joinRoom(verifier, roomId, 'Verifier', '#ef4444');
   const verifierReceivesStroke = waitForEvent(verifier, 'remote-stroke');
+  const strokeId = `cleanup-stroke-${Date.now()}`;
   alice.emit('draw-stroke', {
     roomId,
     stroke: {
-      id: `cleanup-stroke-${Date.now()}`,
+      id: strokeId,
       userId: 'ignored-by-server',
       tool: 'pen',
       color: '#000000',
@@ -269,6 +270,9 @@ test('clears a room after its final participant leaves', async () => {
     }
   });
   assert.equal((await verifierReceivesStroke).id.startsWith('cleanup-stroke-'), true);
+  const verifierReceivesUndo = waitForEvent(verifier, 'undo-stroke-remote');
+  alice.emit('undo-stroke', { roomId, strokeId });
+  assert.equal(await verifierReceivesUndo, strokeId);
   await disconnectClient(verifier);
   await disconnectClient(alice);
   await waitForEmptyRooms();
@@ -278,6 +282,161 @@ test('clears a room after its final participant leaves', async () => {
   assert.deepEqual(recreatedRoom.strokes, []);
   assert.equal(recreatedRoom.users.length, 1);
 
-  await disconnectClient(newParticipant);
+  newParticipant.emit('redo-stroke', { roomId, strokeId });
+  const afterRedoAttempt = await joinRoom(await connectClient(), roomId, 'Verifier', '#ef4444');
+  assert.deepEqual(afterRedoAttempt.strokes, []);
+
+  await Promise.all([...clients].map(disconnectClient));
+  await waitForEmptyRooms();
+});
+
+test('synchronizes redo across collaborators and rejects invalid redo requests', async () => {
+  const roomId = `redo-sync-${Date.now()}`;
+  const alice = await connectClient();
+  await joinRoom(alice, roomId, 'Alice', '#3b82f6');
+  const bob = await connectClient();
+  await joinRoom(bob, roomId, 'Bob', '#ef4444');
+
+  const aliceStroke = {
+    id: `redo-alice-${Date.now()}`,
+    userId: 'ignored-by-server',
+    tool: 'pen',
+    color: '#000000',
+    width: 5,
+    points: [{ x: 1, y: 1 }, { x: 2, y: 2 }]
+  };
+  const bobReceivesAliceStroke = waitForEvent(bob, 'remote-stroke');
+  alice.emit('draw-stroke', { roomId, stroke: aliceStroke });
+  await bobReceivesAliceStroke;
+
+  const bobStroke = { ...aliceStroke, id: `redo-bob-${Date.now()}`, color: '#ef4444' };
+  const aliceReceivesBobStroke = waitForEvent(alice, 'remote-stroke');
+  bob.emit('draw-stroke', { roomId, stroke: bobStroke });
+  await aliceReceivesBobStroke;
+
+  const bobReceivesUndo = waitForEvent(bob, 'undo-stroke-remote');
+  alice.emit('undo-stroke', { roomId, strokeId: aliceStroke.id });
+  assert.equal(await bobReceivesUndo, aliceStroke.id);
+
+  alice.emit('redo-stroke', { roomId, strokeId: 'wrong-stroke-id' });
+  bob.emit('redo-stroke', { roomId, strokeId: aliceStroke.id });
+  const afterInvalidRedo = await joinRoom(await connectClient(), roomId, 'Charlie', '#10b981');
+  assert.deepEqual(afterInvalidRedo.strokes.map(stroke => stroke.id), [bobStroke.id]);
+
+  const aliceReceivesRedo = waitForEvent(alice, 'redo-stroke-remote');
+  const bobReceivesRedo = waitForEvent(bob, 'redo-stroke-remote');
+  alice.emit('redo-stroke', { roomId, strokeId: aliceStroke.id });
+  assert.equal((await aliceReceivesRedo).id, aliceStroke.id);
+  assert.equal((await bobReceivesRedo).id, aliceStroke.id);
+
+  alice.emit('redo-stroke', { roomId, strokeId: aliceStroke.id });
+  const afterDuplicateRedo = await joinRoom(await connectClient(), roomId, 'Dana', '#f59e0b');
+  assert.deepEqual(afterDuplicateRedo.strokes.map(stroke => stroke.id), [bobStroke.id, aliceStroke.id]);
+
+  await Promise.all([...clients].map(disconnectClient));
+  await waitForEmptyRooms();
+});
+
+test('restores a user’s undone strokes in LIFO order without removing collaborator strokes', async () => {
+  const roomId = `redo-lifo-${Date.now()}`;
+  const alice = await connectClient();
+  await joinRoom(alice, roomId, 'Alice', '#3b82f6');
+  const bob = await connectClient();
+  await joinRoom(bob, roomId, 'Bob', '#ef4444');
+
+  const aliceFirst = { id: `redo-a1-${Date.now()}`, userId: 'ignored-by-server', tool: 'pen', color: '#000000', width: 5, points: [{ x: 1, y: 1 }, { x: 2, y: 2 }] };
+  const aliceSecond = { ...aliceFirst, id: `redo-a2-${Date.now()}` };
+  const bobStroke = { ...aliceFirst, id: `redo-b1-${Date.now()}`, color: '#ef4444' };
+
+  for (const stroke of [aliceFirst, aliceSecond]) {
+    const bobReceivesStroke = waitForEvent(bob, 'remote-stroke');
+    alice.emit('draw-stroke', { roomId, stroke });
+    await bobReceivesStroke;
+  }
+  const aliceReceivesBobStroke = waitForEvent(alice, 'remote-stroke');
+  bob.emit('draw-stroke', { roomId, stroke: bobStroke });
+  await aliceReceivesBobStroke;
+
+  for (const stroke of [aliceSecond, aliceFirst]) {
+    const bobReceivesUndo = waitForEvent(bob, 'undo-stroke-remote');
+    alice.emit('undo-stroke', { roomId, strokeId: stroke.id });
+    assert.equal(await bobReceivesUndo, stroke.id);
+  }
+
+  for (const stroke of [aliceFirst, aliceSecond]) {
+    const aliceReceivesRedo = waitForEvent(alice, 'redo-stroke-remote');
+    const bobReceivesRedo = waitForEvent(bob, 'redo-stroke-remote');
+    alice.emit('redo-stroke', { roomId, strokeId: stroke.id });
+    assert.equal((await aliceReceivesRedo).id, stroke.id);
+    assert.equal((await bobReceivesRedo).id, stroke.id);
+  }
+
+  const lateJoiner = await joinRoom(await connectClient(), roomId, 'Charlie', '#10b981');
+  assert.deepEqual(lateJoiner.strokes.map(stroke => stroke.id), [bobStroke.id, aliceFirst.id, aliceSecond.id]);
+
+  await Promise.all([...clients].map(disconnectClient));
+  await waitForEmptyRooms();
+});
+
+test('clears only the drawing user’s redo history after a new stroke', async () => {
+  const roomId = `redo-branch-${Date.now()}`;
+  const alice = await connectClient();
+  await joinRoom(alice, roomId, 'Alice', '#3b82f6');
+  const bob = await connectClient();
+  await joinRoom(bob, roomId, 'Bob', '#ef4444');
+
+  const aliceFirst = { id: `branch-a1-${Date.now()}`, userId: 'ignored-by-server', tool: 'pen', color: '#000000', width: 5, points: [{ x: 1, y: 1 }, { x: 2, y: 2 }] };
+  const aliceSecond = { ...aliceFirst, id: `branch-a2-${Date.now()}` };
+  const bobReceivesFirst = waitForEvent(bob, 'remote-stroke');
+  alice.emit('draw-stroke', { roomId, stroke: aliceFirst });
+  await bobReceivesFirst;
+
+  const bobReceivesUndo = waitForEvent(bob, 'undo-stroke-remote');
+  alice.emit('undo-stroke', { roomId, strokeId: aliceFirst.id });
+  await bobReceivesUndo;
+
+  const bobReceivesSecond = waitForEvent(bob, 'remote-stroke');
+  alice.emit('draw-stroke', { roomId, stroke: aliceSecond });
+  await bobReceivesSecond;
+  alice.emit('redo-stroke', { roomId, strokeId: aliceFirst.id });
+
+  const afterOwnNewStroke = await joinRoom(await connectClient(), roomId, 'Charlie', '#10b981');
+  assert.deepEqual(afterOwnNewStroke.strokes.map(stroke => stroke.id), [aliceSecond.id]);
+
+  await Promise.all([...clients].map(disconnectClient));
+  await waitForEmptyRooms();
+});
+
+test('preserves a user’s redo history when a collaborator draws', async () => {
+  const roomId = `redo-collaborator-${Date.now()}`;
+  const alice = await connectClient();
+  await joinRoom(alice, roomId, 'Alice', '#3b82f6');
+  const bob = await connectClient();
+  await joinRoom(bob, roomId, 'Bob', '#ef4444');
+
+  const aliceStroke = { id: `collaborator-a1-${Date.now()}`, userId: 'ignored-by-server', tool: 'pen', color: '#000000', width: 5, points: [{ x: 1, y: 1 }, { x: 2, y: 2 }] };
+  const bobStroke = { ...aliceStroke, id: `collaborator-b1-${Date.now()}`, color: '#ef4444' };
+  const bobReceivesAliceStroke = waitForEvent(bob, 'remote-stroke');
+  alice.emit('draw-stroke', { roomId, stroke: aliceStroke });
+  await bobReceivesAliceStroke;
+
+  const bobReceivesUndo = waitForEvent(bob, 'undo-stroke-remote');
+  alice.emit('undo-stroke', { roomId, strokeId: aliceStroke.id });
+  await bobReceivesUndo;
+
+  const aliceReceivesBobStroke = waitForEvent(alice, 'remote-stroke');
+  bob.emit('draw-stroke', { roomId, stroke: bobStroke });
+  await aliceReceivesBobStroke;
+
+  const aliceReceivesRedo = waitForEvent(alice, 'redo-stroke-remote');
+  const bobReceivesRedo = waitForEvent(bob, 'redo-stroke-remote');
+  alice.emit('redo-stroke', { roomId, strokeId: aliceStroke.id });
+  assert.equal((await aliceReceivesRedo).id, aliceStroke.id);
+  assert.equal((await bobReceivesRedo).id, aliceStroke.id);
+
+  const lateJoiner = await joinRoom(await connectClient(), roomId, 'Charlie', '#10b981');
+  assert.deepEqual(lateJoiner.strokes.map(stroke => stroke.id), [bobStroke.id, aliceStroke.id]);
+
+  await Promise.all([...clients].map(disconnectClient));
   await waitForEmptyRooms();
 });

@@ -25,6 +25,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   const currentStrokeRef = useRef<Stroke | null>(null);
   const userIdRef = useRef<string>('me');
   const pendingUndoRef = useRef<Stroke | null>(null);
+  const pendingRedoRef = useRef<Stroke | null>(null);
   const [notification, setNotification] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
@@ -122,6 +123,15 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
       if (pendingUndo?.id === strokeId) {
         setRedoStack(prev => [...prev, pendingUndo]);
         pendingUndoRef.current = null;
+      }
+    });
+
+    socket.on('redo-stroke-remote', (stroke: Stroke) => {
+      setStrokes(prev => prev.some(activeStroke => activeStroke.id === stroke.id) ? prev : [...prev, stroke]);
+
+      if (pendingRedoRef.current?.id === stroke.id) {
+        setRedoStack(prev => prev[prev.length - 1]?.id === stroke.id ? prev.slice(0, -1) : prev);
+        pendingRedoRef.current = null;
       }
     });
 
@@ -226,7 +236,6 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
 
     currentStrokeRef.current = newStroke;
     setIsDrawing(true);
-    setRedoStack([]);
   };
 
   const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
@@ -256,6 +265,8 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     // Only add if it has enough points to be visible
     if (finishedStroke.points.length > 0) {
       setStrokes(prev => [...prev, finishedStroke]);
+      setRedoStack([]);
+      pendingRedoRef.current = null;
 
       // Emit stroke to server for real-time sync
       if (socketRef.current) {
@@ -282,14 +293,13 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   };
 
   const redo = () => {
-    setRedoStack(prev => {
-      if (prev.length === 0) return prev;
-      const newRedo = [...prev];
-      const last = newRedo.pop();
-      if (last) {
-        setStrokes(s => [...s, last]);
-      }
-      return newRedo;
+    const stroke = redoStack[redoStack.length - 1];
+    if (!stroke || !socketRef.current) return;
+
+    pendingRedoRef.current = stroke;
+    socketRef.current.emit('redo-stroke', {
+      roomId,
+      strokeId: stroke.id
     });
   };
 

@@ -39,6 +39,7 @@ interface Stroke {
 interface Room {
   strokes: Stroke[];
   users: Map<string, { name: string; color: string }>;
+  redoStacks: Map<string, Stroke[]>;
 }
 
 const rooms = new Map<string, Room>();
@@ -55,7 +56,8 @@ io.on('connection', (socket: Socket) => {
     if (!rooms.has(roomId)) {
       rooms.set(roomId, {
         strokes: [],
-        users: new Map()
+        users: new Map(),
+        redoStacks: new Map()
       });
     }
 
@@ -92,6 +94,7 @@ io.on('connection', (socket: Socket) => {
       // Update userId to match the connected socket
       stroke.userId = socket.id;
       room.strokes.push(stroke);
+      room.redoStacks.delete(socket.id);
 
       // Broadcast stroke to all OTHER clients in the room (not the sender)
       socket.to(roomId).emit('remote-stroke', stroke);
@@ -111,11 +114,38 @@ io.on('connection', (socket: Socket) => {
       );
 
       if (strokeIndex !== -1) {
-        room.strokes.splice(strokeIndex, 1);
+        const [stroke] = room.strokes.splice(strokeIndex, 1);
+        const redoStack = room.redoStacks.get(socket.id) || [];
+        redoStack.push(stroke);
+        room.redoStacks.set(socket.id, redoStack);
         io.to(roomId).emit('undo-stroke-remote', strokeId);
         console.log(`Stroke ${strokeId} undone in room ${roomId}`);
       }
     }
+  });
+
+  // Handle redo
+  socket.on('redo-stroke', (data: { roomId: string; strokeId: string }) => {
+    const { roomId, strokeId } = data;
+    const room = rooms.get(roomId);
+    const redoStack = room?.redoStacks.get(socket.id);
+    const stroke = redoStack?.[redoStack.length - 1];
+
+    if (!room || !stroke || stroke.id !== strokeId || stroke.userId !== socket.id) {
+      return;
+    }
+
+    if (room.strokes.some(activeStroke => activeStroke.id === stroke.id)) {
+      return;
+    }
+
+    redoStack.pop();
+    if (redoStack.length === 0) {
+      room.redoStacks.delete(socket.id);
+    }
+    room.strokes.push(stroke);
+    io.to(roomId).emit('redo-stroke-remote', stroke);
+    console.log(`Stroke ${strokeId} redone in room ${roomId}`);
   });
 
   // Handle user disconnect
@@ -127,6 +157,7 @@ io.on('connection', (socket: Socket) => {
       if (room.users.has(socket.id)) {
         const userName = room.users.get(socket.id)?.name;
         room.users.delete(socket.id);
+        room.redoStacks.delete(socket.id);
 
         io.to(roomId).emit('user-left', {
           userId: socket.id,
