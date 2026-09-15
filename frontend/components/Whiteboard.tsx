@@ -17,6 +17,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   const [color, setColor] = useState('#000000');
   const [width, setWidth] = useState(5);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
+  const strokesRef = useRef<Stroke[]>(strokes);
   const [redoStack, setRedoStack] = useState<Stroke[]>([]);
   const [collaborators, setCollaborators] = useState<UserPresence[]>([
     { id: 'me', name: userName, color: '#3b82f6', isMe: true }
@@ -202,7 +203,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
       }
 
       // Render historical strokes
-      strokes.forEach(s => {
+      strokesRef.current.forEach(s => {
         if (s) renderStroke(ctx, s);
       });
 
@@ -211,11 +212,12 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
         renderStroke(ctx, currentStrokeRef.current);
       }
     });
-  }, [strokes]);
+  }, []);
 
   useEffect(() => {
+    strokesRef.current = strokes;
     renderAll();
-  }, [renderAll]);
+  }, [strokes, renderAll]);
 
   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current;
