@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch server.ts",
-    "build": "npx -p typescript tsc server.ts --module nodenext --moduleResolution nodenext --esModuleInterop --outDir .",
-    "start": "node server.js"
+    "build": "tsc -p tsconfig.json",
+    "start": "node server.js",
+    "test": "node --test test/collaboration.test.js"
   },
   "dependencies": {
     "cors": "^2.8.6",

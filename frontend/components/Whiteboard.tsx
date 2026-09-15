@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import Toolbar from './Toolbar';
 import Collaborators from './Collaborators';
 import { Tool, Stroke, UserPresence } from '../types';
+import { findLatestOwnedStroke } from '../utils/findLatestOwnedStroke';
 
 interface WhiteboardProps {
   roomId: string;
@@ -23,6 +24,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   const [isDrawing, setIsDrawing] = useState(false);
   const currentStrokeRef = useRef<Stroke | null>(null);
   const userIdRef = useRef<string>('me');
+  const pendingUndoRef = useRef<Stroke | null>(null);
   const [notification, setNotification] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
@@ -115,6 +117,12 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     // Handle remote undo
     socket.on('undo-stroke-remote', (strokeId: string) => {
       setStrokes(prev => prev.filter(s => s.id !== strokeId));
+
+      const pendingUndo = pendingUndoRef.current;
+      if (pendingUndo?.id === strokeId) {
+        setRedoStack(prev => [...prev, pendingUndo]);
+        pendingUndoRef.current = null;
+      }
     });
 
     socket.on('disconnect', () => {
@@ -263,22 +271,13 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   };
 
   const undo = () => {
-    setStrokes(prev => {
-      if (prev.length === 0) return prev;
-      const newStrokes = [...prev];
-      const last = newStrokes.pop();
-      if (last) {
-        setRedoStack(r => [...r, last]);
+    const stroke = findLatestOwnedStroke(strokes, userIdRef.current);
+    if (!stroke || !socketRef.current) return;
 
-        // Emit undo to server
-        if (socketRef.current) {
-          socketRef.current.emit('undo-stroke', {
-            roomId,
-            strokeId: last.id
-          });
-        }
-      }
-      return newStrokes;
+    pendingUndoRef.current = stroke;
+    socketRef.current.emit('undo-stroke', {
+      roomId,
+      strokeId: stroke.id
     });
   };
 
