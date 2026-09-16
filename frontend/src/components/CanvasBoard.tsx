@@ -12,6 +12,7 @@ interface CanvasBoardProps {
   color: string;
   width: number;
   getUserId: () => string;
+  onInteractionStart: () => void;
   onCompletedStroke: (stroke: Stroke) => void;
 }
 
@@ -31,6 +32,7 @@ const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(({
   color,
   width,
   getUserId,
+  onInteractionStart,
   onCompletedStroke
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -53,17 +55,28 @@ const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(({
   useEffect(() => {
     const resizeCanvas = () => {
       const canvas = canvasRef.current;
-      if (!canvas) return;
+      const container = canvas?.parentElement;
+      if (!canvas || !container) return;
 
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      const nextWidth = Math.round(container.clientWidth);
+      const nextHeight = Math.round(container.clientHeight);
+      if (nextWidth === 0 || nextHeight === 0) return;
+      if (canvas.width === nextWidth && canvas.height === nextHeight) return;
+
+      canvas.width = nextWidth;
+      canvas.height = nextHeight;
       redraw();
     };
 
-    window.addEventListener('resize', resizeCanvas);
+    const canvas = canvasRef.current;
+    const container = canvas?.parentElement;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver(resizeCanvas);
+    resizeObserver.observe(container);
     resizeCanvas();
 
-    return () => window.removeEventListener('resize', resizeCanvas);
+    return () => resizeObserver.disconnect();
   }, [redraw]);
 
   useEffect(() => {
@@ -87,6 +100,7 @@ const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    onInteractionStart();
     const { x, y } = getPointerPosition(event, canvas);
     currentStrokeRef.current = {
       id: Math.random().toString(36).substring(2, 9),
@@ -136,7 +150,7 @@ const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(({
       onTouchStart={handleMouseDown}
       onTouchMove={handleMouseMove}
       onTouchEnd={handleMouseUp}
-      className="block"
+      className="canvas-page-canvas"
     />
   );
 });

@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import CanvasBoard, { CanvasBoardHandle } from './CanvasBoard';
+import { CanvasBoardHandle } from './CanvasBoard';
+import BoardPages from './BoardPages';
 import CanvasSyncLogo from './CanvasSyncLogo';
 import Collaborators from './Collaborators';
 import Toolbar from './Toolbar';
 import { useRoomSocket } from '../hooks/useRoomSocket';
 import { BoardPage, PageStrokeCommandPayload, PageStrokePayload, Stroke, Tool, UserPresence } from '../types';
 import { appendStrokeToPage } from '../utils/appendStrokeToPage';
+import { appendPage } from '../utils/appendPage';
 import { findLatestOwnedStroke } from '../utils/findLatestOwnedStroke';
 import { removeStrokeFromPage, restoreStrokeToPage } from '../utils/pageHistory';
 
@@ -22,11 +24,12 @@ interface PageHistoryEntry {
 }
 
 const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
-  const canvasBoardRef = useRef<CanvasBoardHandle>(null);
+  const canvasBoardRefs = useRef(new Map<string, CanvasBoardHandle>());
   const [tool, setTool] = useState<Tool>('pen');
   const [color, setColor] = useState('#000000');
   const [width, setWidth] = useState(5);
   const [pages, setPages] = useState<BoardPage[]>([]);
+  const [activePageId, setActivePageId] = useState<string | null>(null);
   const [redoStack, setRedoStack] = useState<PageHistoryEntry[]>([]);
   const userColorRef = useRef(USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)]);
   const [collaborators, setCollaborators] = useState<UserPresence[]>(() => [
@@ -45,15 +48,12 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
 
   const handleRoomLoaded = useCallback((data: { pages: BoardPage[]; users: UserPresence[] }) => {
     setPages(data.pages);
+    setActivePageId(data.pages[0]?.id ?? null);
     setCollaborators(data.users);
   }, []);
 
   const handlePageCreated = useCallback(({ page }: { page: BoardPage }) => {
-    setPages(previousPages => (
-      previousPages.some(existingPage => existingPage.id === page.id)
-        ? previousPages
-        : [...previousPages, page]
-    ));
+    setPages(previousPages => appendPage(previousPages, page));
   }, []);
 
   const handleRemoteStroke = useCallback(({ pageId, stroke }: PageStrokePayload) => {
@@ -107,45 +107,53 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
 
   const getUserId = useCallback(() => userIdRef.current, [userIdRef]);
 
-  const initialPage = pages[0];
-  const strokes = initialPage?.strokes ?? [];
+  const activePage = pages.find(page => page.id === activePageId) ?? null;
+  const activeStrokes = activePage?.strokes ?? [];
 
-  const handleCompletedStroke = useCallback((stroke: Stroke) => {
-    const pageId = pages[0]?.id;
-    if (!pageId) return;
+  const handleCanvasHandle = useCallback((pageId: string, handle: CanvasBoardHandle | null) => {
+    if (handle) {
+      canvasBoardRefs.current.set(pageId, handle);
+    } else {
+      canvasBoardRefs.current.delete(pageId);
+    }
+  }, []);
 
+  const handleCompletedStroke = useCallback((pageId: string, stroke: Stroke) => {
     setPages(previousPages => appendStrokeToPage(previousPages, pageId, stroke));
     setRedoStack(previousStack => previousStack.filter(entry => entry.pageId !== pageId));
     if (pendingRedoRef.current?.pageId === pageId) {
       pendingRedoRef.current = null;
     }
     emitCompletedStroke(pageId, stroke);
-  }, [emitCompletedStroke, pages]);
+  }, [emitCompletedStroke]);
 
   const undo = useCallback(() => {
-    const pageId = initialPage?.id;
-    const stroke = findLatestOwnedStroke(strokes, userIdRef.current);
+    const pageId = activePage?.id;
+    const stroke = findLatestOwnedStroke(activeStrokes, userIdRef.current);
     if (!pageId || !stroke || !isSocketAvailable()) return;
 
     pendingUndoRef.current = { pageId, stroke };
     requestUndo(pageId, stroke.id);
-  }, [initialPage?.id, isSocketAvailable, requestUndo, strokes, userIdRef]);
+  }, [activePage?.id, activeStrokes, isSocketAvailable, requestUndo, userIdRef]);
 
   const redo = useCallback(() => {
-    const pageId = initialPage?.id;
+    const pageId = activePage?.id;
     const entry = pageId ? [...redoStack].reverse().find(candidate => candidate.pageId === pageId) : undefined;
     if (!entry || !isSocketAvailable()) return;
 
     pendingRedoRef.current = entry;
     requestRedo(entry.pageId, entry.stroke.id);
-  }, [initialPage?.id, isSocketAvailable, redoStack, requestRedo]);
+  }, [activePage?.id, isSocketAvailable, redoStack, requestRedo]);
 
-  const canUndo = Boolean(findLatestOwnedStroke(strokes, userIdRef.current));
-  const canRedo = Boolean(initialPage && redoStack.some(entry => entry.pageId === initialPage.id));
+  const canUndo = Boolean(findLatestOwnedStroke(activeStrokes, userIdRef.current));
+  const canRedo = Boolean(activePage && redoStack.some(entry => entry.pageId === activePage.id));
 
   const exportPng = useCallback(() => {
-    canvasBoardRef.current?.exportPng(`whiteboard-${roomId}.png`);
-  }, [roomId]);
+    if (!activePage) return;
+
+    const pageNumber = pages.findIndex(page => page.id === activePage.id) + 1;
+    canvasBoardRefs.current.get(activePage.id)?.exportPng(`whiteboard-${roomId}-page-${pageNumber}.png`);
+  }, [activePage, pages, roomId]);
 
   const inviteCollaborator = async () => {
     const url = window.location.href;
@@ -209,27 +217,17 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
         </div>
       </header>
 
-      <CanvasBoard
-        ref={canvasBoardRef}
-        strokes={strokes}
+      <BoardPages
+        pages={pages}
+        activePageId={activePageId}
         tool={tool}
         color={color}
         width={width}
         getUserId={getUserId}
+        onActivatePage={setActivePageId}
         onCompletedStroke={handleCompletedStroke}
+        onCanvasHandle={handleCanvasHandle}
       />
-      {strokes.length === 0 && (
-        <div className="workspace-empty-state" aria-hidden="true">
-          <svg viewBox="0 0 180 88" fill="none">
-            <path className="workspace-empty-sketch" d="M13 61c16-24 27-27 37-10 8 14 17 15 28 1 11-15 21-13 32 2" />
-            <path className="workspace-empty-pen" d="m111 50 35-35 10 10-35 35-15 5 5-15Z" />
-            <path className="workspace-empty-pen" d="m140 21 10 10" />
-            <path className="workspace-empty-spark" d="m157 12 3-7m5 18 8 2m-16 8 4 6" />
-          </svg>
-          <strong>Start drawing together</strong>
-          <span>Choose a tool, invite others, and bring your ideas to life in real time.</span>
-        </div>
-      )}
       <Toolbar
         activeTool={tool}
         setTool={setTool}

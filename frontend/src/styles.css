@@ -1624,6 +1624,89 @@ canvas {
   color: var(--workspace-text);
 }
 
+.board-pages {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 92px 88px 132px;
+  scrollbar-color: color-mix(in srgb, var(--entry-teal) 24%, transparent) transparent;
+}
+
+.canvas-page {
+  width: min(1180px, 100%);
+  margin: 0 auto 48px;
+  padding: 10px;
+  border: 1px solid var(--workspace-border);
+  border-radius: 16px;
+  background: var(--workspace-surface);
+  box-shadow: 0 1px 2px rgba(48, 45, 38, 0.04), 0 10px 28px rgba(48, 45, 38, 0.06);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.canvas-page.is-active {
+  border-color: color-mix(in srgb, var(--entry-teal) 42%, var(--workspace-border));
+  box-shadow: 0 1px 2px rgba(48, 45, 38, 0.04), 0 14px 30px rgba(23, 63, 58, 0.1);
+}
+
+.canvas-page:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--entry-teal) 30%, transparent);
+  outline-offset: 3px;
+}
+
+.canvas-page-label {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 5px 8px;
+  color: var(--workspace-secondary);
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1;
+}
+
+.canvas-page-active-indicator {
+  color: var(--entry-teal);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.canvas-page-board {
+  position: relative;
+  width: 100%;
+  min-height: clamp(360px, 58vw, 680px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--workspace-border) 72%, transparent);
+  border-radius: 10px;
+  background: var(--canvas-bg);
+  aspect-ratio: 16 / 9;
+}
+
+.canvas-page-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.canvas-page-empty-state {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  display: grid;
+  gap: 8px;
+  place-items: center;
+  color: var(--workspace-muted);
+  font-size: 13px;
+  font-weight: 620;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.canvas-page-empty-state i {
+  color: color-mix(in srgb, var(--entry-teal) 56%, var(--workspace-muted));
+  font-size: 24px;
+}
+
 .workspace-shell button:focus-visible,
 .workspace-shell input:focus-visible {
   outline-color: color-mix(in srgb, var(--entry-teal) 32%, transparent);
@@ -1876,6 +1959,9 @@ canvas {
 @keyframes workspace-empty-draw { to { stroke-dashoffset: 0; } }
 
 @media (max-width: 768px) {
+  .board-pages { padding: 84px 32px 130px; }
+  .canvas-page { margin-bottom: 36px; }
+  .canvas-page-board { min-height: clamp(340px, 70vw, 560px); }
   .workspace-header { top: 12px; left: 12px; }
   .collaboration-controls { top: 12px; right: 12px; }
   .toolbar-tool-dock { left: 14px; }
@@ -1883,6 +1969,12 @@ canvas {
 }
 
 @media (max-width: 560px) {
+  .board-pages { padding: 76px 12px 154px; }
+  .canvas-page { margin-bottom: 28px; padding: 7px; border-radius: 13px; }
+  .canvas-page-label { min-height: 26px; padding: 0 3px 6px; }
+  .canvas-page-board { min-height: clamp(330px, 100vw, 470px); border-radius: 8px; aspect-ratio: 5 / 4; }
+  .canvas-page-empty-state { font-size: 12px; }
+  .canvas-page-empty-state i { font-size: 20px; }
   .workspace-header { max-width: calc(100vw - 158px); }
   .workspace-brand { min-height: 46px; gap: 8px; padding: 4px 9px 4px 4px; border-radius: 12px; }
   .workspace-brand-logo { --logo-gap: 7px; font-size: 14px; }
