@@ -3,7 +3,7 @@ import { Stroke } from '../types';
 // Canvas pixels cannot read CSS custom properties directly. Keep these aligned with
 // --canvas-bg and --grid in styles.css so the eraser always paints the board surface.
 const CANVAS_BACKGROUND = '#fcfdfd';
-const GRID_COLOR = '#e8ecf1';
+const GRID_COLOR = '#e5e9e4';
 const GRID_SIZE = 40;
 
 export function renderStroke(ctx: CanvasRenderingContext2D, stroke: Stroke | null) {

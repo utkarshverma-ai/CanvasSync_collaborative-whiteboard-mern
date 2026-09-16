@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import CanvasBoard, { CanvasBoardHandle } from './CanvasBoard';
+import CanvasSyncLogo from './CanvasSyncLogo';
 import Collaborators from './Collaborators';
 import Toolbar from './Toolbar';
 import { useRoomSocket } from '../hooks/useRoomSocket';
@@ -11,7 +12,7 @@ interface WhiteboardProps {
   userName: string;
 }
 
-const USER_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
+const USER_COLORS = ['#357a72', '#c56f45', '#7b8c77', '#b78a4a', '#8d6a7d', '#a95c72'];
 
 const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   const canvasBoardRef = useRef<CanvasBoardHandle>(null);
@@ -20,11 +21,11 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   const [width, setWidth] = useState(5);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [redoStack, setRedoStack] = useState<Stroke[]>([]);
-  const [collaborators, setCollaborators] = useState<UserPresence[]>([
-    { id: 'me', name: userName, color: '#3b82f6', isMe: true }
+  const userColorRef = useRef(USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)]);
+  const [collaborators, setCollaborators] = useState<UserPresence[]>(() => [
+    { id: 'me', name: userName, color: userColorRef.current, isMe: true }
   ]);
   const [notification, setNotification] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
-  const userColorRef = useRef(USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)]);
   const pendingUndoRef = useRef<Stroke | null>(null);
   const pendingRedoRef = useRef<Stroke | null>(null);
 
@@ -175,21 +176,17 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
       )}
       <header className="workspace-header">
         <div className="workspace-brand">
-          <div className="workspace-mark" aria-hidden="true">
-            <i className="fa-solid fa-signature"></i>
-          </div>
-          <div className="workspace-title">
-            <span className="workspace-product-name">CanvasSync</span>
-            <span className="workspace-room-name">Board · {roomId}</span>
-          </div>
+          <CanvasSyncLogo className="workspace-brand-logo" size={40} showWordmark />
+          <span className="workspace-divider" aria-hidden="true"></span>
           <span className={`connection-status is-${connectionStatus}`} role="status">
             <span className="connection-status-dot" aria-hidden="true"></span>
             <span className="connection-status-label">
               {connectionStatus === 'connected' ? 'Connected' : connectionStatus === 'connecting' ? 'Connecting' : 'Disconnected'}
             </span>
           </span>
+          <span className="workspace-divider workspace-divider--room" aria-hidden="true"></span>
+          <span className="workspace-room-name" title={`Board ID: ${roomId}`}>Board · {roomId}</span>
         </div>
-        <Collaborators users={collaborators} onInvite={inviteCollaborator} />
       </header>
 
       <CanvasBoard
@@ -203,8 +200,14 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
       />
       {strokes.length === 0 && (
         <div className="workspace-empty-state" aria-hidden="true">
-          <strong>Start drawing</strong>
-          <span>Choose a tool below and sketch something together.</span>
+          <svg viewBox="0 0 180 88" fill="none">
+            <path className="workspace-empty-sketch" d="M13 61c16-24 27-27 37-10 8 14 17 15 28 1 11-15 21-13 32 2" />
+            <path className="workspace-empty-pen" d="m111 50 35-35 10 10-35 35-15 5 5-15Z" />
+            <path className="workspace-empty-pen" d="m140 21 10 10" />
+            <path className="workspace-empty-spark" d="m157 12 3-7m5 18 8 2m-16 8 4 6" />
+          </svg>
+          <strong>Start drawing together</strong>
+          <span>Choose a tool, invite others, and bring your ideas to life in real time.</span>
         </div>
       )}
       <Toolbar
@@ -220,6 +223,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
         redo={redo}
         exportPng={exportPng}
       />
+      <Collaborators users={collaborators} onInvite={inviteCollaborator} />
     </div>
   );
 };

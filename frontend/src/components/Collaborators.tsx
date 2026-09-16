@@ -38,7 +38,7 @@ const Collaborators: React.FC<Props> = ({ users, onInvite }) => {
 
   return (
     <div className="collaboration-controls">
-      <div className="collaborator-avatars" aria-label={`${users.length} collaborator${users.length === 1 ? '' : 's'} in this board`}>
+      <div className="collaborator-avatars" role="group" aria-label={`${users.length} collaborator${users.length === 1 ? '' : 's'} in this board`}>
         {visibleUsers.map(user => (
           <span
             key={user.id}
