@@ -19,6 +19,7 @@ interface JoinRoomPayload {
 
 interface StrokeCommandPayload {
   roomId: string;
+  pageId: string;
   strokeId: string;
 }
 
@@ -63,14 +64,17 @@ export function parseJoinRoomPayload(value: unknown): JoinRoomPayload | null {
 }
 
 export function parseStrokeCommandPayload(value: unknown): StrokeCommandPayload | null {
-  if (!isRecord(value)) return null;
+  if (
+    !isRecord(value)
+    || Object.keys(value).some(key => !['roomId', 'pageId', 'strokeId'].includes(key))
+  ) return null;
 
-  const { roomId, strokeId } = value;
-  if (!isValidRoomId(roomId) || !isBoundedNonEmptyString(strokeId, MAX_STROKE_ID_LENGTH)) {
+  const { roomId, pageId, strokeId } = value;
+  if (!isValidRoomId(roomId) || !isValidPageId(pageId) || !isBoundedNonEmptyString(strokeId, MAX_STROKE_ID_LENGTH)) {
     return null;
   }
 
-  return { roomId, strokeId };
+  return { roomId, pageId, strokeId };
 }
 
 export function parseCreatePagePayload(value: unknown): CreatePagePayload | null {

@@ -25,5 +25,5 @@ export interface RoomUser {
 export interface Room {
   pages: BoardPage[];
   users: Map<string, RoomUser>;
-  redoStacks: Map<string, Stroke[]>;
+  redoStacks: Map<string, Map<string, Stroke[]>>;
 }

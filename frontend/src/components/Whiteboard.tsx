@@ -4,9 +4,10 @@ import CanvasSyncLogo from './CanvasSyncLogo';
 import Collaborators from './Collaborators';
 import Toolbar from './Toolbar';
 import { useRoomSocket } from '../hooks/useRoomSocket';
-import { BoardPage, PageStrokePayload, Stroke, Tool, UserPresence } from '../types';
+import { BoardPage, PageStrokeCommandPayload, PageStrokePayload, Stroke, Tool, UserPresence } from '../types';
 import { appendStrokeToPage } from '../utils/appendStrokeToPage';
 import { findLatestOwnedStroke } from '../utils/findLatestOwnedStroke';
+import { removeStrokeFromPage, restoreStrokeToPage } from '../utils/pageHistory';
 
 interface WhiteboardProps {
   roomId: string;
@@ -15,20 +16,25 @@ interface WhiteboardProps {
 
 const USER_COLORS = ['#357a72', '#c56f45', '#7b8c77', '#b78a4a', '#8d6a7d', '#a95c72'];
 
+interface PageHistoryEntry {
+  pageId: string;
+  stroke: Stroke;
+}
+
 const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   const canvasBoardRef = useRef<CanvasBoardHandle>(null);
   const [tool, setTool] = useState<Tool>('pen');
   const [color, setColor] = useState('#000000');
   const [width, setWidth] = useState(5);
   const [pages, setPages] = useState<BoardPage[]>([]);
-  const [redoStack, setRedoStack] = useState<Stroke[]>([]);
+  const [redoStack, setRedoStack] = useState<PageHistoryEntry[]>([]);
   const userColorRef = useRef(USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)]);
   const [collaborators, setCollaborators] = useState<UserPresence[]>(() => [
     { id: 'me', name: userName, color: userColorRef.current, isMe: true }
   ]);
   const [notification, setNotification] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
-  const pendingUndoRef = useRef<Stroke | null>(null);
-  const pendingRedoRef = useRef<Stroke | null>(null);
+  const pendingUndoRef = useRef<PageHistoryEntry | null>(null);
+  const pendingRedoRef = useRef<PageHistoryEntry | null>(null);
 
   useEffect(() => {
     if (!notification) return;
@@ -65,37 +71,23 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     setCollaborators(previousUsers => previousUsers.filter(user => user.id !== data.userId));
   }, []);
 
-  const handleUndoConfirmed = useCallback((strokeId: string) => {
-    // Phase 2 bridge: the undo protocol has no page ID until Phase 3, so confirmations target Page 1 only.
-    setPages(previousPages => {
-      const initialPage = previousPages[0];
-      if (!initialPage) return previousPages;
-
-      return [{ ...initialPage, strokes: initialPage.strokes.filter(stroke => stroke.id !== strokeId) }, ...previousPages.slice(1)];
-    });
+  const handleUndoConfirmed = useCallback(({ pageId, strokeId }: PageStrokeCommandPayload) => {
+    setPages(previousPages => removeStrokeFromPage(previousPages, pageId, strokeId));
 
     const pendingUndo = pendingUndoRef.current;
-    if (pendingUndo?.id === strokeId) {
+    if (pendingUndo?.pageId === pageId && pendingUndo.stroke.id === strokeId) {
       setRedoStack(previousStack => [...previousStack, pendingUndo]);
       pendingUndoRef.current = null;
     }
   }, []);
 
-  const handleRedoConfirmed = useCallback((stroke: Stroke) => {
-    // Phase 2 bridge: redo remains scoped to the initial page until the page-aware history contract lands.
-    setPages(previousPages => {
-      const initialPage = previousPages[0];
-      if (!initialPage || initialPage.strokes.some(activeStroke => activeStroke.id === stroke.id)) return previousPages;
+  const handleRedoConfirmed = useCallback(({ pageId, stroke }: PageStrokePayload) => {
+    setPages(previousPages => restoreStrokeToPage(previousPages, pageId, stroke));
 
-      return [{ ...initialPage, strokes: [...initialPage.strokes, stroke] }, ...previousPages.slice(1)];
-    });
-
-    if (pendingRedoRef.current?.id === stroke.id) {
-      setRedoStack(previousStack => (
-        previousStack[previousStack.length - 1]?.id === stroke.id
-          ? previousStack.slice(0, -1)
-          : previousStack
-      ));
+    if (pendingRedoRef.current?.pageId === pageId && pendingRedoRef.current.stroke.id === stroke.id) {
+      setRedoStack(previousStack => previousStack.filter(entry => (
+        entry.pageId !== pageId || entry.stroke.id !== stroke.id
+      )));
       pendingRedoRef.current = null;
     }
   }, []);
@@ -123,29 +115,33 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     if (!pageId) return;
 
     setPages(previousPages => appendStrokeToPage(previousPages, pageId, stroke));
-    setRedoStack([]);
-    pendingRedoRef.current = null;
+    setRedoStack(previousStack => previousStack.filter(entry => entry.pageId !== pageId));
+    if (pendingRedoRef.current?.pageId === pageId) {
+      pendingRedoRef.current = null;
+    }
     emitCompletedStroke(pageId, stroke);
   }, [emitCompletedStroke, pages]);
 
   const undo = useCallback(() => {
+    const pageId = initialPage?.id;
     const stroke = findLatestOwnedStroke(strokes, userIdRef.current);
-    if (!stroke || !isSocketAvailable()) return;
+    if (!pageId || !stroke || !isSocketAvailable()) return;
 
-    pendingUndoRef.current = stroke;
-    requestUndo(stroke.id);
-  }, [isSocketAvailable, requestUndo, strokes, userIdRef]);
+    pendingUndoRef.current = { pageId, stroke };
+    requestUndo(pageId, stroke.id);
+  }, [initialPage?.id, isSocketAvailable, requestUndo, strokes, userIdRef]);
 
   const redo = useCallback(() => {
-    const stroke = redoStack[redoStack.length - 1];
-    if (!stroke || !isSocketAvailable()) return;
+    const pageId = initialPage?.id;
+    const entry = pageId ? [...redoStack].reverse().find(candidate => candidate.pageId === pageId) : undefined;
+    if (!entry || !isSocketAvailable()) return;
 
-    pendingRedoRef.current = stroke;
-    requestRedo(stroke.id);
-  }, [isSocketAvailable, redoStack, requestRedo]);
+    pendingRedoRef.current = entry;
+    requestRedo(entry.pageId, entry.stroke.id);
+  }, [initialPage?.id, isSocketAvailable, redoStack, requestRedo]);
 
   const canUndo = Boolean(findLatestOwnedStroke(strokes, userIdRef.current));
-  const canRedo = redoStack.length > 0;
+  const canRedo = Boolean(initialPage && redoStack.some(entry => entry.pageId === initialPage.id));
 
   const exportPng = useCallback(() => {
     canvasBoardRef.current?.exportPng(`whiteboard-${roomId}.png`);

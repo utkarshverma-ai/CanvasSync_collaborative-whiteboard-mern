@@ -24,6 +24,11 @@ export interface PageStrokePayload {
   stroke: Stroke;
 }
 
+export interface PageStrokeCommandPayload {
+  pageId: string;
+  strokeId: string;
+}
+
 export interface UserPresence {
   id: string;
   name: string;

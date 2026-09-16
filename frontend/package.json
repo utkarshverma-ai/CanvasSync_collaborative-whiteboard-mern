@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/utils/findLatestOwnedStroke.test.js src/utils/appendStrokeToPage.test.js"
+    "test": "node --test src/utils/findLatestOwnedStroke.test.js src/utils/appendStrokeToPage.test.js src/utils/pageHistory.test.js"
   },
   "dependencies": {
     "react": "^19.2.4",

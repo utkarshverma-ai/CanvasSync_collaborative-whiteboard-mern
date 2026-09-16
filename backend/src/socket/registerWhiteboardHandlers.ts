@@ -1,5 +1,5 @@
 import { Server, Socket } from 'socket.io';
-import { createBoardPage, deleteRoom, forEachRoom, getInitialPage, getOrCreateRoom, getPageById, getRoom } from '../rooms/roomStore.js';
+import { clearRedoStack, createBoardPage, deleteRoom, forEachRoom, getOrCreateRedoStack, getOrCreateRoom, getPageById, getRedoStack, getRoom } from '../rooms/roomStore.js';
 import { parseCreatePagePayload, parseDrawStrokePayload, parseJoinRoomPayload, parseStrokeCommandPayload } from '../validation/socketValidation.js';
 
 export function registerWhiteboardHandlers(io: Server, socket: Socket) {
@@ -58,8 +58,7 @@ export function registerWhiteboardHandlers(io: Server, socket: Socket) {
     if (!page) return;
 
     page.strokes.push(stroke);
-    // Phase 2 compatibility bridge: redo remains room-wide until Phase 3.
-    room.redoStacks.delete(socket.id);
+    clearRedoStack(room, socket.id, pageId);
     socket.to(roomId).emit('remote-stroke', { pageId, stroke });
     console.log(`Stroke added to room ${roomId} by ${socket.id}`);
   });
@@ -68,22 +67,22 @@ export function registerWhiteboardHandlers(io: Server, socket: Socket) {
     const command = parseStrokeCommandPayload(data);
     if (!command || !socket.rooms.has(command.roomId)) return;
 
-    const { roomId, strokeId } = command;
+    const { roomId, pageId, strokeId } = command;
     const room = getRoom(roomId);
     if (!room) return;
 
-    // Phase 1 compatibility bridge: see draw-stroke above.
-    const initialPage = getInitialPage(room);
-    const strokeIndex = initialPage.strokes.findIndex(
+    const page = getPageById(room, pageId);
+    if (!page) return;
+
+    const strokeIndex = page.strokes.findIndex(
       stroke => stroke.id === strokeId && stroke.userId === socket.id
     );
     if (strokeIndex === -1) return;
 
-    const [stroke] = initialPage.strokes.splice(strokeIndex, 1);
-    const redoStack = room.redoStacks.get(socket.id) || [];
+    const [stroke] = page.strokes.splice(strokeIndex, 1);
+    const redoStack = getOrCreateRedoStack(room, socket.id, pageId);
     redoStack.push(stroke);
-    room.redoStacks.set(socket.id, redoStack);
-    io.to(roomId).emit('undo-stroke-remote', strokeId);
+    io.to(roomId).emit('undo-stroke-remote', { pageId, strokeId });
     console.log(`Stroke ${strokeId} undone in room ${roomId}`);
   });
 
@@ -91,22 +90,25 @@ export function registerWhiteboardHandlers(io: Server, socket: Socket) {
     const command = parseStrokeCommandPayload(data);
     if (!command || !socket.rooms.has(command.roomId)) return;
 
-    const { roomId, strokeId } = command;
+    const { roomId, pageId, strokeId } = command;
     const room = getRoom(roomId);
-    const redoStack = room?.redoStacks.get(socket.id);
+    if (!room) return;
+
+    const page = getPageById(room, pageId);
+    if (!page) return;
+
+    const redoStack = getRedoStack(room, socket.id, pageId);
     const stroke = redoStack?.[redoStack.length - 1];
 
-    if (!room || !stroke || stroke.id !== strokeId || stroke.userId !== socket.id) return;
-    // Phase 1 compatibility bridge: see draw-stroke above.
-    const initialPage = getInitialPage(room);
-    if (initialPage.strokes.some(activeStroke => activeStroke.id === stroke.id)) return;
+    if (!stroke || stroke.id !== strokeId || stroke.userId !== socket.id) return;
+    if (page.strokes.some(activeStroke => activeStroke.id === stroke.id)) return;
 
     redoStack.pop();
     if (redoStack.length === 0) {
-      room.redoStacks.delete(socket.id);
+      clearRedoStack(room, socket.id, pageId);
     }
-    initialPage.strokes.push(stroke);
-    io.to(roomId).emit('redo-stroke-remote', stroke);
+    page.strokes.push(stroke);
+    io.to(roomId).emit('redo-stroke-remote', { pageId, stroke });
     console.log(`Stroke ${strokeId} redone in room ${roomId}`);
   });
 

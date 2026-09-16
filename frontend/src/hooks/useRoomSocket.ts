@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { BoardPage, PageStrokePayload, Stroke, UserPresence } from '../types';
+import { BoardPage, PageStrokeCommandPayload, PageStrokePayload, Stroke, UserPresence } from '../types';
 
 interface RoomSocketHandlers {
   onRoomLoaded: (data: { pages: BoardPage[]; users: UserPresence[] }) => void;
@@ -8,8 +8,8 @@ interface RoomSocketHandlers {
   onRemoteStroke: (payload: PageStrokePayload) => void;
   onUserJoined: (user: { userId: string; userName: string; userColor: string }) => void;
   onUserLeft: (user: { userId: string; userName: string }) => void;
-  onUndoConfirmed: (strokeId: string) => void;
-  onRedoConfirmed: (stroke: Stroke) => void;
+  onUndoConfirmed: (payload: PageStrokeCommandPayload) => void;
+  onRedoConfirmed: (payload: PageStrokePayload) => void;
 }
 
 interface UseRoomSocketOptions extends RoomSocketHandlers {
@@ -95,12 +95,12 @@ export function useRoomSocket({
     socketRef.current?.emit('draw-stroke', { roomId, pageId, stroke });
   }, [roomId]);
 
-  const requestUndo = useCallback((strokeId: string) => {
-    socketRef.current?.emit('undo-stroke', { roomId, strokeId });
+  const requestUndo = useCallback((pageId: string, strokeId: string) => {
+    socketRef.current?.emit('undo-stroke', { roomId, pageId, strokeId });
   }, [roomId]);
 
-  const requestRedo = useCallback((strokeId: string) => {
-    socketRef.current?.emit('redo-stroke', { roomId, strokeId });
+  const requestRedo = useCallback((pageId: string, strokeId: string) => {
+    socketRef.current?.emit('redo-stroke', { roomId, pageId, strokeId });
   }, [roomId]);
 
   const isSocketAvailable = useCallback(() => socketRef.current !== null, []);

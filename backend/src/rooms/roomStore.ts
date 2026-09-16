@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BoardPage, Room } from './types.js';
+import { BoardPage, Room, Stroke } from './types.js';
 
 const rooms = new Map<string, Room>();
 
@@ -10,17 +10,38 @@ export function createBoardPage(): BoardPage {
   };
 }
 
-export function getInitialPage(room: Room): BoardPage {
-  const initialPage = room.pages[0];
-  if (!initialPage) {
-    throw new Error('Room invariant violated: a room must contain an initial page.');
-  }
-
-  return initialPage;
-}
-
 export function getPageById(room: Room, pageId: string): BoardPage | undefined {
   return room.pages.find(page => page.id === pageId);
+}
+
+export function getRedoStack(room: Room, socketId: string, pageId: string): Stroke[] | undefined {
+  return room.redoStacks.get(socketId)?.get(pageId);
+}
+
+export function getOrCreateRedoStack(room: Room, socketId: string, pageId: string): Stroke[] {
+  let userRedoStacks = room.redoStacks.get(socketId);
+  if (!userRedoStacks) {
+    userRedoStacks = new Map();
+    room.redoStacks.set(socketId, userRedoStacks);
+  }
+
+  let redoStack = userRedoStacks.get(pageId);
+  if (!redoStack) {
+    redoStack = [];
+    userRedoStacks.set(pageId, redoStack);
+  }
+
+  return redoStack;
+}
+
+export function clearRedoStack(room: Room, socketId: string, pageId: string) {
+  const userRedoStacks = room.redoStacks.get(socketId);
+  if (!userRedoStacks) return;
+
+  userRedoStacks.delete(pageId);
+  if (userRedoStacks.size === 0) {
+    room.redoStacks.delete(socketId);
+  }
 }
 
 export function getOrCreateRoom(roomId: string): Room {
