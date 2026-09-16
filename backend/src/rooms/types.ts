@@ -12,13 +12,18 @@ export interface Stroke {
   points: Point[];
 }
 
+export interface BoardPage {
+  id: string;
+  strokes: Stroke[];
+}
+
 export interface RoomUser {
   name: string;
   color: string;
 }
 
 export interface Room {
-  strokes: Stroke[];
+  pages: BoardPage[];
   users: Map<string, RoomUser>;
   redoStacks: Map<string, Stroke[]>;
 }

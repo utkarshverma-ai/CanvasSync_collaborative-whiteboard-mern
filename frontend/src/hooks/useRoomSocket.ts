@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Stroke, UserPresence } from '../types';
+import { BoardPage, PageStrokePayload, Stroke, UserPresence } from '../types';
 
 interface RoomSocketHandlers {
-  onRoomLoaded: (data: { strokes: Stroke[]; users: UserPresence[] }) => void;
-  onRemoteStroke: (stroke: Stroke) => void;
+  onRoomLoaded: (data: { pages: BoardPage[]; users: UserPresence[] }) => void;
+  onPageCreated: (payload: { page: BoardPage }) => void;
+  onRemoteStroke: (payload: PageStrokePayload) => void;
   onUserJoined: (user: { userId: string; userName: string; userColor: string }) => void;
   onUserLeft: (user: { userId: string; userName: string }) => void;
   onUndoConfirmed: (strokeId: string) => void;
@@ -24,6 +25,7 @@ export function useRoomSocket({
   userName,
   userColor,
   onRoomLoaded,
+  onPageCreated,
   onRemoteStroke,
   onUserJoined,
   onUserLeft,
@@ -64,6 +66,7 @@ export function useRoomSocket({
     socket.on('disconnect', onDisconnect);
     socket.on('reconnect', joinRoom);
     socket.on('load-room', onRoomLoaded);
+    socket.on('page-created', onPageCreated);
     socket.on('remote-stroke', onRemoteStroke);
     socket.on('user-joined', onUserJoined);
     socket.on('user-left', onUserLeft);
@@ -75,6 +78,7 @@ export function useRoomSocket({
       socket.off('disconnect', onDisconnect);
       socket.off('reconnect', joinRoom);
       socket.off('load-room', onRoomLoaded);
+      socket.off('page-created', onPageCreated);
       socket.off('remote-stroke', onRemoteStroke);
       socket.off('user-joined', onUserJoined);
       socket.off('user-left', onUserLeft);
@@ -85,10 +89,10 @@ export function useRoomSocket({
         socketRef.current = null;
       }
     };
-  }, [roomId, userName, userColor, onRoomLoaded, onRemoteStroke, onUserJoined, onUserLeft, onUndoConfirmed, onRedoConfirmed]);
+  }, [roomId, userName, userColor, onRoomLoaded, onPageCreated, onRemoteStroke, onUserJoined, onUserLeft, onUndoConfirmed, onRedoConfirmed]);
 
-  const emitCompletedStroke = useCallback((stroke: Stroke) => {
-    socketRef.current?.emit('draw-stroke', { roomId, stroke });
+  const emitCompletedStroke = useCallback((pageId: string, stroke: Stroke) => {
+    socketRef.current?.emit('draw-stroke', { roomId, pageId, stroke });
   }, [roomId]);
 
   const requestUndo = useCallback((strokeId: string) => {

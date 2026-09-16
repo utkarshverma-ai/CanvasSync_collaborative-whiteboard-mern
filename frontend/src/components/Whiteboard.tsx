@@ -4,7 +4,8 @@ import CanvasSyncLogo from './CanvasSyncLogo';
 import Collaborators from './Collaborators';
 import Toolbar from './Toolbar';
 import { useRoomSocket } from '../hooks/useRoomSocket';
-import { Stroke, Tool, UserPresence } from '../types';
+import { BoardPage, PageStrokePayload, Stroke, Tool, UserPresence } from '../types';
+import { appendStrokeToPage } from '../utils/appendStrokeToPage';
 import { findLatestOwnedStroke } from '../utils/findLatestOwnedStroke';
 
 interface WhiteboardProps {
@@ -19,7 +20,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   const [tool, setTool] = useState<Tool>('pen');
   const [color, setColor] = useState('#000000');
   const [width, setWidth] = useState(5);
-  const [strokes, setStrokes] = useState<Stroke[]>([]);
+  const [pages, setPages] = useState<BoardPage[]>([]);
   const [redoStack, setRedoStack] = useState<Stroke[]>([]);
   const userColorRef = useRef(USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)]);
   const [collaborators, setCollaborators] = useState<UserPresence[]>(() => [
@@ -36,13 +37,21 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     return () => clearTimeout(timer);
   }, [notification]);
 
-  const handleRoomLoaded = useCallback((data: { strokes: Stroke[]; users: UserPresence[] }) => {
-    setStrokes(data.strokes);
+  const handleRoomLoaded = useCallback((data: { pages: BoardPage[]; users: UserPresence[] }) => {
+    setPages(data.pages);
     setCollaborators(data.users);
   }, []);
 
-  const handleRemoteStroke = useCallback((stroke: Stroke) => {
-    setStrokes(previousStrokes => [...previousStrokes, stroke]);
+  const handlePageCreated = useCallback(({ page }: { page: BoardPage }) => {
+    setPages(previousPages => (
+      previousPages.some(existingPage => existingPage.id === page.id)
+        ? previousPages
+        : [...previousPages, page]
+    ));
+  }, []);
+
+  const handleRemoteStroke = useCallback(({ pageId, stroke }: PageStrokePayload) => {
+    setPages(previousPages => appendStrokeToPage(previousPages, pageId, stroke));
   }, []);
 
   const handleUserJoined = useCallback((data: { userId: string; userName: string; userColor: string }) => {
@@ -57,7 +66,13 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   }, []);
 
   const handleUndoConfirmed = useCallback((strokeId: string) => {
-    setStrokes(previousStrokes => previousStrokes.filter(stroke => stroke.id !== strokeId));
+    // Phase 2 bridge: the undo protocol has no page ID until Phase 3, so confirmations target Page 1 only.
+    setPages(previousPages => {
+      const initialPage = previousPages[0];
+      if (!initialPage) return previousPages;
+
+      return [{ ...initialPage, strokes: initialPage.strokes.filter(stroke => stroke.id !== strokeId) }, ...previousPages.slice(1)];
+    });
 
     const pendingUndo = pendingUndoRef.current;
     if (pendingUndo?.id === strokeId) {
@@ -67,11 +82,13 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   }, []);
 
   const handleRedoConfirmed = useCallback((stroke: Stroke) => {
-    setStrokes(previousStrokes => (
-      previousStrokes.some(activeStroke => activeStroke.id === stroke.id)
-        ? previousStrokes
-        : [...previousStrokes, stroke]
-    ));
+    // Phase 2 bridge: redo remains scoped to the initial page until the page-aware history contract lands.
+    setPages(previousPages => {
+      const initialPage = previousPages[0];
+      if (!initialPage || initialPage.strokes.some(activeStroke => activeStroke.id === stroke.id)) return previousPages;
+
+      return [{ ...initialPage, strokes: [...initialPage.strokes, stroke] }, ...previousPages.slice(1)];
+    });
 
     if (pendingRedoRef.current?.id === stroke.id) {
       setRedoStack(previousStack => (
@@ -88,6 +105,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     userName,
     userColor: userColorRef.current,
     onRoomLoaded: handleRoomLoaded,
+    onPageCreated: handlePageCreated,
     onRemoteStroke: handleRemoteStroke,
     onUserJoined: handleUserJoined,
     onUserLeft: handleUserLeft,
@@ -97,12 +115,18 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
 
   const getUserId = useCallback(() => userIdRef.current, [userIdRef]);
 
+  const initialPage = pages[0];
+  const strokes = initialPage?.strokes ?? [];
+
   const handleCompletedStroke = useCallback((stroke: Stroke) => {
-    setStrokes(previousStrokes => [...previousStrokes, stroke]);
+    const pageId = pages[0]?.id;
+    if (!pageId) return;
+
+    setPages(previousPages => appendStrokeToPage(previousPages, pageId, stroke));
     setRedoStack([]);
     pendingRedoRef.current = null;
-    emitCompletedStroke(stroke);
-  }, [emitCompletedStroke]);
+    emitCompletedStroke(pageId, stroke);
+  }, [emitCompletedStroke, pages]);
 
   const undo = useCallback(() => {
     const stroke = findLatestOwnedStroke(strokes, userIdRef.current);

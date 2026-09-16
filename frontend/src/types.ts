@@ -14,6 +14,16 @@ export interface Stroke {
   points: Point[];
 }
 
+export interface BoardPage {
+  id: string;
+  strokes: Stroke[];
+}
+
+export interface PageStrokePayload {
+  pageId: string;
+  stroke: Stroke;
+}
+
 export interface UserPresence {
   id: string;
   name: string;

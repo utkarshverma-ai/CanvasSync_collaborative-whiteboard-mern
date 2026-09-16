@@ -9,6 +9,7 @@ const NEGATIVE_EVENT_WINDOW_MS = 100;
 let backend;
 let backendUrl;
 const clients = new Set();
+const initialPageIds = new Map();
 
 function withTimeout(promise, description) {
   let timeout;
@@ -100,7 +101,24 @@ async function connectClient() {
 async function joinRoom(socket, roomId, userName, userColor) {
   const roomLoaded = waitForEvent(socket, 'load-room');
   socket.emit('join-room', { roomId, userName, userColor });
-  return roomLoaded;
+  const roomState = await roomLoaded;
+  initialPageIds.set(roomId, getInitialPage(roomState).id);
+  return roomState;
+}
+
+function drawStroke(socket, roomId, stroke, pageId = initialPageIds.get(roomId)) {
+  assert.equal(typeof pageId, 'string', `Missing initial page ID for room ${roomId}`);
+  socket.emit('draw-stroke', { roomId, pageId, stroke });
+}
+
+function getInitialPage(roomState) {
+  assert.ok(Array.isArray(roomState.pages));
+  assert.equal(roomState.pages.length >= 1, true);
+  return roomState.pages[0];
+}
+
+function getInitialStrokes(roomState) {
+  return getInitialPage(roomState).strokes;
 }
 
 async function disconnectClient(socket) {
@@ -147,7 +165,7 @@ test('joins rooms and broadcasts presence changes', async () => {
   const roomId = `presence-${Date.now()}`;
   const alice = await connectClient();
   const aliceRoom = await joinRoom(alice, roomId, 'Alice', '#3b82f6');
-  assert.deepEqual(aliceRoom.strokes, []);
+  assert.deepEqual(getInitialStrokes(aliceRoom), []);
   assert.equal(aliceRoom.users.length, 1);
   assert.equal(aliceRoom.users[0].name, 'Alice');
   assert.equal(aliceRoom.users[0].isMe, true);
@@ -171,6 +189,85 @@ test('joins rooms and broadcasts presence changes', async () => {
   await waitForEmptyRooms();
 });
 
+test('creates one stable initial page and broadcasts server-created pages in insertion order', async () => {
+  const roomId = `pages-${Date.now()}`;
+  const alice = await connectClient();
+  const aliceRoom = await joinRoom(alice, roomId, 'Alice', '#3b82f6');
+  const firstPage = getInitialPage(aliceRoom);
+
+  assert.equal(aliceRoom.pages.length, 1);
+  assert.equal(typeof firstPage.id, 'string');
+  assert.notEqual(firstPage.id.trim(), '');
+  assert.deepEqual(firstPage.strokes, []);
+  assert.equal(aliceRoom.users.length, 1);
+
+  const bob = await connectClient();
+  const bobRoom = await joinRoom(bob, roomId, 'Bob', '#ef4444');
+  assert.equal(bobRoom.pages.length, 1);
+  assert.equal(bobRoom.pages[0].id, firstPage.id);
+  assert.equal(bobRoom.users.length, 2);
+
+  const aliceReceivesSecondPage = waitForEvent(alice, 'page-created');
+  const bobReceivesSecondPage = waitForEvent(bob, 'page-created');
+  alice.emit('create-page', { roomId });
+  const secondPageForAlice = await aliceReceivesSecondPage;
+  const secondPageForBob = await bobReceivesSecondPage;
+
+  assert.equal(secondPageForAlice.page.id, secondPageForBob.page.id);
+  assert.notEqual(secondPageForAlice.page.id, firstPage.id);
+  assert.deepEqual(secondPageForAlice.page.strokes, []);
+
+  const aliceReceivesThirdPage = waitForEvent(alice, 'page-created');
+  const bobReceivesThirdPage = waitForEvent(bob, 'page-created');
+  bob.emit('create-page', { roomId });
+  const thirdPageForAlice = await aliceReceivesThirdPage;
+  const thirdPageForBob = await bobReceivesThirdPage;
+
+  assert.equal(thirdPageForAlice.page.id, thirdPageForBob.page.id);
+  const lateJoiner = await joinRoom(await connectClient(), roomId, 'Charlie', '#10b981');
+  assert.deepEqual(lateJoiner.pages.map(page => page.id), [
+    firstPage.id,
+    secondPageForAlice.page.id,
+    thirdPageForAlice.page.id
+  ]);
+
+  await Promise.all([...clients].map(disconnectClient));
+  await waitForEmptyRooms();
+});
+
+test('rejects malformed, unjoined, and cross-room page creation', async () => {
+  const roomOne = `page-protected-${Date.now()}`;
+  const roomTwo = `page-other-${Date.now()}`;
+  const attacker = await connectClient();
+  const alice = await connectClient();
+  await joinRoom(alice, roomOne, 'Alice', '#3b82f6');
+  const witness = await connectClient();
+  await joinRoom(witness, roomOne, 'Witness', '#10b981');
+  const bob = await connectClient();
+  await joinRoom(bob, roomTwo, 'Bob', '#ef4444');
+
+  await expectNoEvent(witness, 'page-created', () => {
+    attacker.emit('create-page', { roomId: roomOne });
+  });
+  await expectNoEvent(bob, 'page-created', () => {
+    alice.emit('create-page', { roomId: roomTwo });
+  });
+
+  for (const payload of [null, {}, { roomId: '' }, { roomId: 123 }, { roomId: roomOne, pageId: 'client-chosen-page' }]) {
+    await expectNoEvent(witness, 'page-created', () => {
+      alice.emit('create-page', payload);
+    });
+  }
+
+  const roomOneState = await joinRoom(await connectClient(), roomOne, 'Verifier', '#f59e0b');
+  const roomTwoState = await joinRoom(await connectClient(), roomTwo, 'Room two verifier', '#8b5cf6');
+  assert.equal(roomOneState.pages.length, 1);
+  assert.equal(roomTwoState.pages.length, 1);
+
+  await Promise.all([...clients].map(disconnectClient));
+  await waitForEmptyRooms();
+});
+
 test('synchronizes completed strokes and loads stored room state', async () => {
   const roomId = `drawing-${Date.now()}`;
   const alice = await connectClient();
@@ -188,20 +285,122 @@ test('synchronizes completed strokes and loads stored room state', async () => {
     points: [{ x: 10, y: 10 }, { x: 100, y: 100 }]
   };
   const bobReceivesStroke = waitForEvent(bob, 'remote-stroke');
-  alice.emit('draw-stroke', { roomId, stroke });
+  drawStroke(alice, roomId, stroke);
   const remoteStroke = await bobReceivesStroke;
 
-  assert.equal(remoteStroke.id, stroke.id);
-  assert.equal(remoteStroke.userId, alice.id);
-  assert.deepEqual(remoteStroke.points, stroke.points);
+  assert.equal(remoteStroke.pageId, initialPageIds.get(roomId));
+  assert.equal(remoteStroke.stroke.id, stroke.id);
+  assert.equal(remoteStroke.stroke.userId, alice.id);
+  assert.deepEqual(remoteStroke.stroke.points, stroke.points);
 
   const charlie = await connectClient();
   const charlieRoom = await joinRoom(charlie, roomId, 'Charlie', '#10b981');
-  assert.equal(charlieRoom.strokes.length, 1);
-  assert.equal(charlieRoom.strokes[0].id, stroke.id);
-  assert.equal(charlieRoom.strokes[0].userId, alice.id);
+  assert.equal(getInitialStrokes(charlieRoom).length, 1);
+  assert.equal(getInitialStrokes(charlieRoom)[0].id, stroke.id);
+  assert.equal(getInitialStrokes(charlieRoom)[0].userId, alice.id);
 
   await Promise.all([disconnectClient(alice), disconnectClient(bob), disconnectClient(charlie)]);
+  await waitForEmptyRooms();
+});
+
+test('keeps page-aware strokes isolated and broadcasts their authoritative page IDs', async () => {
+  const roomId = `page-drawing-${Date.now()}`;
+  const alice = await connectClient();
+  const aliceRoom = await joinRoom(alice, roomId, 'Alice', '#3b82f6');
+  const firstPageId = getInitialPage(aliceRoom).id;
+  const bob = await connectClient();
+  await joinRoom(bob, roomId, 'Bob', '#ef4444');
+  const charlie = await connectClient();
+  await joinRoom(charlie, roomId, 'Charlie', '#10b981');
+
+  const aliceReceivesPage = waitForEvent(alice, 'page-created');
+  const bobReceivesPage = waitForEvent(bob, 'page-created');
+  alice.emit('create-page', { roomId });
+  const secondPageId = (await aliceReceivesPage).page.id;
+  assert.equal((await bobReceivesPage).page.id, secondPageId);
+
+  const firstPageStroke = {
+    id: `page-one-${Date.now()}`,
+    userId: 'ignored-by-server',
+    tool: 'pen',
+    color: '#000000',
+    width: 5,
+    points: [{ x: 10, y: 10 }, { x: 20, y: 20 }]
+  };
+  const bobReceivesFirstPageStroke = waitForEvent(bob, 'remote-stroke');
+  const charlieReceivesFirstPageStroke = waitForEvent(charlie, 'remote-stroke');
+  drawStroke(alice, roomId, firstPageStroke, firstPageId);
+  const firstPagePayload = await bobReceivesFirstPageStroke;
+  assert.deepEqual(await charlieReceivesFirstPageStroke, firstPagePayload);
+  assert.equal(firstPagePayload.pageId, firstPageId);
+  assert.equal(firstPagePayload.stroke.id, firstPageStroke.id);
+  assert.equal(firstPagePayload.stroke.userId, alice.id);
+
+  const secondPageStroke = {
+    ...firstPageStroke,
+    id: `page-two-${Date.now()}`,
+    color: '#ef4444'
+  };
+  const aliceReceivesSecondPageStroke = waitForEvent(alice, 'remote-stroke');
+  const charlieReceivesSecondPageStroke = waitForEvent(charlie, 'remote-stroke');
+  drawStroke(bob, roomId, secondPageStroke, secondPageId);
+  const secondPagePayload = await aliceReceivesSecondPageStroke;
+  assert.deepEqual(await charlieReceivesSecondPageStroke, secondPagePayload);
+  assert.equal(secondPagePayload.pageId, secondPageId);
+  assert.equal(secondPagePayload.stroke.id, secondPageStroke.id);
+  assert.equal(secondPagePayload.stroke.userId, bob.id);
+
+  const lateJoiner = await joinRoom(await connectClient(), roomId, 'Dana', '#f59e0b');
+  assert.deepEqual(lateJoiner.pages.map(page => page.strokes.map(stroke => stroke.id)), [
+    [firstPageStroke.id],
+    [secondPageStroke.id]
+  ]);
+
+  await Promise.all([...clients].map(disconnectClient));
+  await waitForEmptyRooms();
+});
+
+test('rejects invalid, cross-room, and unjoined page-aware drawing requests', async () => {
+  const roomOne = `page-draw-protected-${Date.now()}`;
+  const roomTwo = `page-draw-other-${Date.now()}`;
+  const alice = await connectClient();
+  const roomOneState = await joinRoom(alice, roomOne, 'Alice', '#3b82f6');
+  const roomOnePageId = getInitialPage(roomOneState).id;
+  const roomTwoState = await joinRoom(alice, roomTwo, 'Alice', '#3b82f6');
+  const roomTwoPageId = getInitialPage(roomTwoState).id;
+  const witness = await connectClient();
+  await joinRoom(witness, roomOne, 'Witness', '#10b981');
+  const attacker = await connectClient();
+  const stroke = {
+    id: `invalid-page-stroke-${Date.now()}`,
+    userId: 'ignored-by-server',
+    tool: 'pen',
+    color: '#000000',
+    width: 5,
+    points: [{ x: 1, y: 1 }, { x: 2, y: 2 }]
+  };
+
+  for (const payload of [
+    { roomId: roomOne, stroke },
+    { roomId: roomOne, pageId: '', stroke },
+    { roomId: roomOne, pageId: 123, stroke },
+    { roomId: roomOne, pageId: 'x'.repeat(101), stroke },
+    { roomId: roomOne, pageId: 'unknown-page', stroke },
+    { roomId: roomOne, pageId: roomTwoPageId, stroke }
+  ]) {
+    await expectNoEvent(witness, 'remote-stroke', () => {
+      alice.emit('draw-stroke', payload);
+    });
+  }
+
+  await expectNoEvent(witness, 'remote-stroke', () => {
+    attacker.emit('draw-stroke', { roomId: roomOne, pageId: roomOnePageId, stroke });
+  });
+
+  const verifier = await joinRoom(await connectClient(), roomOne, 'Verifier', '#f59e0b');
+  assert.deepEqual(getInitialStrokes(verifier), []);
+
+  await Promise.all([...clients].map(disconnectClient));
   await waitForEmptyRooms();
 });
 
@@ -221,7 +420,7 @@ test('enforces stroke ownership for undo and broadcasts accepted undos', async (
     points: [{ x: 1, y: 1 }, { x: 2, y: 2 }]
   };
   const bobReceivesStroke = waitForEvent(bob, 'remote-stroke');
-  alice.emit('draw-stroke', { roomId, stroke: aliceStroke });
+  drawStroke(alice, roomId, aliceStroke);
   await bobReceivesStroke;
 
   const aliceSecondStroke = {
@@ -229,7 +428,7 @@ test('enforces stroke ownership for undo and broadcasts accepted undos', async (
     id: `undo-alice-second-${Date.now()}`
   };
   const bobReceivesSecondAliceStroke = waitForEvent(bob, 'remote-stroke');
-  alice.emit('draw-stroke', { roomId, stroke: aliceSecondStroke });
+  drawStroke(alice, roomId, aliceSecondStroke);
   await bobReceivesSecondAliceStroke;
 
   const bobStroke = {
@@ -238,12 +437,12 @@ test('enforces stroke ownership for undo and broadcasts accepted undos', async (
     color: '#ef4444'
   };
   const aliceReceivesStroke = waitForEvent(alice, 'remote-stroke');
-  bob.emit('draw-stroke', { roomId, stroke: bobStroke });
+  drawStroke(bob, roomId, bobStroke);
   await aliceReceivesStroke;
 
   bob.emit('undo-stroke', { roomId, strokeId: aliceStroke.id });
   const afterUnauthorizedUndo = await joinRoom(await connectClient(), roomId, 'Charlie', '#10b981');
-  assert.deepEqual(afterUnauthorizedUndo.strokes.map(stroke => stroke.id), [aliceStroke.id, aliceSecondStroke.id, bobStroke.id]);
+  assert.deepEqual(getInitialStrokes(afterUnauthorizedUndo).map(stroke => stroke.id), [aliceStroke.id, aliceSecondStroke.id, bobStroke.id]);
 
   const bobReceivesUndo = waitForEvent(bob, 'undo-stroke-remote');
   alice.emit('undo-stroke', { roomId, strokeId: aliceSecondStroke.id });
@@ -254,18 +453,18 @@ test('enforces stroke ownership for undo and broadcasts accepted undos', async (
   assert.equal(await bobReceivesSecondUndo, aliceStroke.id);
 
   const afterAliceUndos = await joinRoom(await connectClient(), roomId, 'Dana', '#f59e0b');
-  assert.deepEqual(afterAliceUndos.strokes.map(stroke => stroke.id), [bobStroke.id]);
+  assert.deepEqual(getInitialStrokes(afterAliceUndos).map(stroke => stroke.id), [bobStroke.id]);
 
   alice.emit('undo-stroke', { roomId, strokeId: aliceStroke.id });
   const afterRepeatedUndo = await joinRoom(await connectClient(), roomId, 'Eve', '#8b5cf6');
-  assert.deepEqual(afterRepeatedUndo.strokes.map(stroke => stroke.id), [bobStroke.id]);
+  assert.deepEqual(getInitialStrokes(afterRepeatedUndo).map(stroke => stroke.id), [bobStroke.id]);
 
   const aliceReceivesUndo = waitForEvent(alice, 'undo-stroke-remote');
   bob.emit('undo-stroke', { roomId, strokeId: bobStroke.id });
   assert.equal(await aliceReceivesUndo, bobStroke.id);
 
   const afterBothOwnersUndo = await joinRoom(await connectClient(), roomId, 'Frank', '#14b8a6');
-  assert.deepEqual(afterBothOwnersUndo.strokes, []);
+  assert.deepEqual(getInitialStrokes(afterBothOwnersUndo), []);
 
   await Promise.all([...clients].map(disconnectClient));
   await waitForEmptyRooms();
@@ -280,18 +479,15 @@ test('clears a room after its final participant leaves', async () => {
   await joinRoom(verifier, roomId, 'Verifier', '#ef4444');
   const verifierReceivesStroke = waitForEvent(verifier, 'remote-stroke');
   const strokeId = `cleanup-stroke-${Date.now()}`;
-  alice.emit('draw-stroke', {
-    roomId,
-    stroke: {
+  drawStroke(alice, roomId, {
       id: strokeId,
       userId: 'ignored-by-server',
       tool: 'pen',
       color: '#000000',
       width: 5,
       points: [{ x: 1, y: 1 }, { x: 2, y: 2 }]
-    }
   });
-  assert.equal((await verifierReceivesStroke).id.startsWith('cleanup-stroke-'), true);
+  assert.equal((await verifierReceivesStroke).stroke.id.startsWith('cleanup-stroke-'), true);
   const verifierReceivesUndo = waitForEvent(verifier, 'undo-stroke-remote');
   alice.emit('undo-stroke', { roomId, strokeId });
   assert.equal(await verifierReceivesUndo, strokeId);
@@ -301,12 +497,13 @@ test('clears a room after its final participant leaves', async () => {
 
   const newParticipant = await connectClient();
   const recreatedRoom = await joinRoom(newParticipant, roomId, 'New participant', '#10b981');
-  assert.deepEqual(recreatedRoom.strokes, []);
+  assert.equal(recreatedRoom.pages.length, 1);
+  assert.deepEqual(getInitialStrokes(recreatedRoom), []);
   assert.equal(recreatedRoom.users.length, 1);
 
   newParticipant.emit('redo-stroke', { roomId, strokeId });
   const afterRedoAttempt = await joinRoom(await connectClient(), roomId, 'Verifier', '#ef4444');
-  assert.deepEqual(afterRedoAttempt.strokes, []);
+  assert.deepEqual(getInitialStrokes(afterRedoAttempt), []);
 
   await Promise.all([...clients].map(disconnectClient));
   await waitForEmptyRooms();
@@ -328,12 +525,12 @@ test('synchronizes redo across collaborators and rejects invalid redo requests',
     points: [{ x: 1, y: 1 }, { x: 2, y: 2 }]
   };
   const bobReceivesAliceStroke = waitForEvent(bob, 'remote-stroke');
-  alice.emit('draw-stroke', { roomId, stroke: aliceStroke });
+  drawStroke(alice, roomId, aliceStroke);
   await bobReceivesAliceStroke;
 
   const bobStroke = { ...aliceStroke, id: `redo-bob-${Date.now()}`, color: '#ef4444' };
   const aliceReceivesBobStroke = waitForEvent(alice, 'remote-stroke');
-  bob.emit('draw-stroke', { roomId, stroke: bobStroke });
+  drawStroke(bob, roomId, bobStroke);
   await aliceReceivesBobStroke;
 
   const bobReceivesUndo = waitForEvent(bob, 'undo-stroke-remote');
@@ -343,7 +540,7 @@ test('synchronizes redo across collaborators and rejects invalid redo requests',
   alice.emit('redo-stroke', { roomId, strokeId: 'wrong-stroke-id' });
   bob.emit('redo-stroke', { roomId, strokeId: aliceStroke.id });
   const afterInvalidRedo = await joinRoom(await connectClient(), roomId, 'Charlie', '#10b981');
-  assert.deepEqual(afterInvalidRedo.strokes.map(stroke => stroke.id), [bobStroke.id]);
+  assert.deepEqual(getInitialStrokes(afterInvalidRedo).map(stroke => stroke.id), [bobStroke.id]);
 
   const aliceReceivesRedo = waitForEvent(alice, 'redo-stroke-remote');
   const bobReceivesRedo = waitForEvent(bob, 'redo-stroke-remote');
@@ -353,7 +550,7 @@ test('synchronizes redo across collaborators and rejects invalid redo requests',
 
   alice.emit('redo-stroke', { roomId, strokeId: aliceStroke.id });
   const afterDuplicateRedo = await joinRoom(await connectClient(), roomId, 'Dana', '#f59e0b');
-  assert.deepEqual(afterDuplicateRedo.strokes.map(stroke => stroke.id), [bobStroke.id, aliceStroke.id]);
+  assert.deepEqual(getInitialStrokes(afterDuplicateRedo).map(stroke => stroke.id), [bobStroke.id, aliceStroke.id]);
 
   await Promise.all([...clients].map(disconnectClient));
   await waitForEmptyRooms();
@@ -372,11 +569,11 @@ test('restores a user’s undone strokes in LIFO order without removing collabor
 
   for (const stroke of [aliceFirst, aliceSecond]) {
     const bobReceivesStroke = waitForEvent(bob, 'remote-stroke');
-    alice.emit('draw-stroke', { roomId, stroke });
+    drawStroke(alice, roomId, stroke);
     await bobReceivesStroke;
   }
   const aliceReceivesBobStroke = waitForEvent(alice, 'remote-stroke');
-  bob.emit('draw-stroke', { roomId, stroke: bobStroke });
+  drawStroke(bob, roomId, bobStroke);
   await aliceReceivesBobStroke;
 
   for (const stroke of [aliceSecond, aliceFirst]) {
@@ -394,7 +591,7 @@ test('restores a user’s undone strokes in LIFO order without removing collabor
   }
 
   const lateJoiner = await joinRoom(await connectClient(), roomId, 'Charlie', '#10b981');
-  assert.deepEqual(lateJoiner.strokes.map(stroke => stroke.id), [bobStroke.id, aliceFirst.id, aliceSecond.id]);
+  assert.deepEqual(getInitialStrokes(lateJoiner).map(stroke => stroke.id), [bobStroke.id, aliceFirst.id, aliceSecond.id]);
 
   await Promise.all([...clients].map(disconnectClient));
   await waitForEmptyRooms();
@@ -410,7 +607,7 @@ test('clears only the drawing user’s redo history after a new stroke', async (
   const aliceFirst = { id: `branch-a1-${Date.now()}`, userId: 'ignored-by-server', tool: 'pen', color: '#000000', width: 5, points: [{ x: 1, y: 1 }, { x: 2, y: 2 }] };
   const aliceSecond = { ...aliceFirst, id: `branch-a2-${Date.now()}` };
   const bobReceivesFirst = waitForEvent(bob, 'remote-stroke');
-  alice.emit('draw-stroke', { roomId, stroke: aliceFirst });
+  drawStroke(alice, roomId, aliceFirst);
   await bobReceivesFirst;
 
   const bobReceivesUndo = waitForEvent(bob, 'undo-stroke-remote');
@@ -418,12 +615,12 @@ test('clears only the drawing user’s redo history after a new stroke', async (
   await bobReceivesUndo;
 
   const bobReceivesSecond = waitForEvent(bob, 'remote-stroke');
-  alice.emit('draw-stroke', { roomId, stroke: aliceSecond });
+  drawStroke(alice, roomId, aliceSecond);
   await bobReceivesSecond;
   alice.emit('redo-stroke', { roomId, strokeId: aliceFirst.id });
 
   const afterOwnNewStroke = await joinRoom(await connectClient(), roomId, 'Charlie', '#10b981');
-  assert.deepEqual(afterOwnNewStroke.strokes.map(stroke => stroke.id), [aliceSecond.id]);
+  assert.deepEqual(getInitialStrokes(afterOwnNewStroke).map(stroke => stroke.id), [aliceSecond.id]);
 
   await Promise.all([...clients].map(disconnectClient));
   await waitForEmptyRooms();
@@ -439,7 +636,7 @@ test('preserves a user’s redo history when a collaborator draws', async () => 
   const aliceStroke = { id: `collaborator-a1-${Date.now()}`, userId: 'ignored-by-server', tool: 'pen', color: '#000000', width: 5, points: [{ x: 1, y: 1 }, { x: 2, y: 2 }] };
   const bobStroke = { ...aliceStroke, id: `collaborator-b1-${Date.now()}`, color: '#ef4444' };
   const bobReceivesAliceStroke = waitForEvent(bob, 'remote-stroke');
-  alice.emit('draw-stroke', { roomId, stroke: aliceStroke });
+  drawStroke(alice, roomId, aliceStroke);
   await bobReceivesAliceStroke;
 
   const bobReceivesUndo = waitForEvent(bob, 'undo-stroke-remote');
@@ -447,7 +644,7 @@ test('preserves a user’s redo history when a collaborator draws', async () => 
   await bobReceivesUndo;
 
   const aliceReceivesBobStroke = waitForEvent(alice, 'remote-stroke');
-  bob.emit('draw-stroke', { roomId, stroke: bobStroke });
+  drawStroke(bob, roomId, bobStroke);
   await aliceReceivesBobStroke;
 
   const aliceReceivesRedo = waitForEvent(alice, 'redo-stroke-remote');
@@ -457,7 +654,7 @@ test('preserves a user’s redo history when a collaborator draws', async () => 
   assert.equal((await bobReceivesRedo).id, aliceStroke.id);
 
   const lateJoiner = await joinRoom(await connectClient(), roomId, 'Charlie', '#10b981');
-  assert.deepEqual(lateJoiner.strokes.map(stroke => stroke.id), [bobStroke.id, aliceStroke.id]);
+  assert.deepEqual(getInitialStrokes(lateJoiner).map(stroke => stroke.id), [bobStroke.id, aliceStroke.id]);
 
   await Promise.all([...clients].map(disconnectClient));
   await waitForEmptyRooms();
@@ -489,21 +686,21 @@ test('rejects malformed, unjoined, and cross-room room mutations', async () => {
     points: [{ x: 1, y: 1 }, { x: 2, y: 2 }]
   };
   const witnessReceivesStroke = waitForEvent(witness, 'remote-stroke');
-  alice.emit('draw-stroke', { roomId: roomOne, stroke: protectedStroke });
+  drawStroke(alice, roomOne, protectedStroke);
   await witnessReceivesStroke;
 
   await expectNoEvent(witness, 'remote-stroke', () => {
-    attacker.emit('draw-stroke', { roomId: roomOne, stroke: { ...protectedStroke, id: 'attacker-stroke' } });
+    attacker.emit('draw-stroke', { roomId: roomOne, pageId: initialPageIds.get(roomOne), stroke: { ...protectedStroke, id: 'attacker-stroke' } });
   });
   await expectNoEvent(bob, 'remote-stroke', () => {
-    alice.emit('draw-stroke', { roomId: roomTwo, stroke: { ...protectedStroke, id: 'cross-room-stroke' } });
+    alice.emit('draw-stroke', { roomId: roomTwo, pageId: initialPageIds.get(roomTwo), stroke: { ...protectedStroke, id: 'cross-room-stroke' } });
   });
 
   const roomTwoWitness = await connectClient();
   await joinRoom(roomTwoWitness, roomTwo, 'Room two witness', '#8b5cf6');
   const roomTwoStroke = { ...protectedStroke, id: `room-two-stroke-${Date.now()}`, color: '#ef4444' };
   const roomTwoWitnessReceivesStroke = waitForEvent(roomTwoWitness, 'remote-stroke');
-  bob.emit('draw-stroke', { roomId: roomTwo, stroke: roomTwoStroke });
+  drawStroke(bob, roomTwo, roomTwoStroke);
   await roomTwoWitnessReceivesStroke;
   await expectNoEvent(roomTwoWitness, 'undo-stroke-remote', () => {
     alice.emit('undo-stroke', { roomId: roomTwo, strokeId: roomTwoStroke.id });
@@ -521,8 +718,8 @@ test('rejects malformed, unjoined, and cross-room room mutations', async () => {
 
   const spoofedStroke = { ...protectedStroke, id: `spoofed-${Date.now()}`, userId: bob.id };
   const witnessReceivesSpoofedStroke = waitForEvent(witness, 'remote-stroke');
-  alice.emit('draw-stroke', { roomId: roomOne, stroke: spoofedStroke });
-  assert.equal((await witnessReceivesSpoofedStroke).userId, alice.id);
+  drawStroke(alice, roomOne, spoofedStroke);
+  assert.equal((await witnessReceivesSpoofedStroke).stroke.userId, alice.id);
 
   const malformedStrokes = [
     { ...protectedStroke, id: '' },
@@ -535,7 +732,7 @@ test('rejects malformed, unjoined, and cross-room room mutations', async () => {
   ];
   for (const stroke of malformedStrokes) {
     await expectNoEvent(witness, 'remote-stroke', () => {
-      alice.emit('draw-stroke', { roomId: roomOne, stroke });
+      drawStroke(alice, roomOne, stroke);
     });
   }
 
@@ -562,9 +759,9 @@ test('rejects malformed, unjoined, and cross-room room mutations', async () => {
   assert.equal((await witnessReceivesRedo).id, protectedStroke.id);
 
   const roomOneState = await joinRoom(await connectClient(), roomOne, 'Verifier', '#f59e0b');
-  assert.deepEqual(roomOneState.strokes.map(stroke => stroke.id), [spoofedStroke.id, protectedStroke.id]);
+  assert.deepEqual(getInitialStrokes(roomOneState).map(stroke => stroke.id), [spoofedStroke.id, protectedStroke.id]);
   const roomTwoState = await joinRoom(await connectClient(), roomTwo, 'Room two verifier', '#8b5cf6');
-  assert.deepEqual(roomTwoState.strokes.map(stroke => stroke.id), [roomTwoStroke.id]);
+  assert.deepEqual(getInitialStrokes(roomTwoState).map(stroke => stroke.id), [roomTwoStroke.id]);
 
   await Promise.all([...clients].map(disconnectClient));
   await waitForEmptyRooms();

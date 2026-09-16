@@ -1,6 +1,7 @@
 import { Stroke } from '../rooms/types.js';
 
 export const MAX_ROOM_ID_LENGTH = 100;
+export const MAX_PAGE_ID_LENGTH = 100;
 export const MAX_USERNAME_LENGTH = 80;
 export const MAX_STROKE_ID_LENGTH = 100;
 export const MAX_STROKE_POINTS = 10_000;
@@ -23,7 +24,12 @@ interface StrokeCommandPayload {
 
 interface DrawStrokePayload {
   roomId: string;
+  pageId: string;
   stroke: Stroke;
+}
+
+interface CreatePagePayload {
+  roomId: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,6 +42,10 @@ function isBoundedNonEmptyString(value: unknown, maxLength: number): value is st
 
 export function isValidRoomId(value: unknown): value is string {
   return isBoundedNonEmptyString(value, MAX_ROOM_ID_LENGTH);
+}
+
+export function isValidPageId(value: unknown): value is string {
+  return isBoundedNonEmptyString(value, MAX_PAGE_ID_LENGTH);
 }
 
 export function parseJoinRoomPayload(value: unknown): JoinRoomPayload | null {
@@ -63,8 +73,21 @@ export function parseStrokeCommandPayload(value: unknown): StrokeCommandPayload 
   return { roomId, strokeId };
 }
 
+export function parseCreatePagePayload(value: unknown): CreatePagePayload | null {
+  if (!isRecord(value) || Object.keys(value).some(key => key !== 'roomId')) return null;
+  if (!isValidRoomId(value.roomId)) return null;
+
+  return { roomId: value.roomId };
+}
+
 export function parseDrawStrokePayload(value: unknown, userId: string): DrawStrokePayload | null {
-  if (!isRecord(value) || !isValidRoomId(value.roomId) || !isRecord(value.stroke)) {
+  if (
+    !isRecord(value)
+    || Object.keys(value).some(key => !['roomId', 'pageId', 'stroke'].includes(key))
+    || !isValidRoomId(value.roomId)
+    || !isValidPageId(value.pageId)
+    || !isRecord(value.stroke)
+  ) {
     return null;
   }
 
@@ -80,6 +103,7 @@ export function parseDrawStrokePayload(value: unknown, userId: string): DrawStro
 
   return {
     roomId: value.roomId,
+    pageId: value.pageId,
     stroke: {
       id,
       userId,
