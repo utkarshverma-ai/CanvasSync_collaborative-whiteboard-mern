@@ -111,7 +111,10 @@ export function useRoomSocket({
     socketRef.current?.emit('redo-stroke', { roomId, pageId, strokeId });
   }, [roomId]);
 
-  const isSocketAvailable = useCallback(() => socketRef.current !== null, []);
+  // A disconnected Socket.IO instance may queue emits for a later reconnect. History
+  // commands must stay unavailable until the room is connected again so they cannot
+  // apply after the user has moved on to a different page or board state.
+  const isSocketAvailable = useCallback(() => socketRef.current?.connected === true, []);
 
   return { userIdRef, requestPageCreation, emitCompletedStroke, requestUndo, requestRedo, isSocketAvailable, connectionStatus };
 }

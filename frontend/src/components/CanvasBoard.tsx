@@ -74,9 +74,13 @@ const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(({
 
     const resizeObserver = new ResizeObserver(resizeCanvas);
     resizeObserver.observe(container);
+    window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
 
-    return () => resizeObserver.disconnect();
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', resizeCanvas);
+    };
   }, [redraw]);
 
   useEffect(() => {
