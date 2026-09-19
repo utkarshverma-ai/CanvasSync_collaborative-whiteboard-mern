@@ -10,6 +10,7 @@ let backend;
 let backendUrl;
 const clients = new Set();
 const initialPageIds = new Map();
+let pageRequestSequence = 0;
 
 function withTimeout(promise, description) {
   let timeout;
@@ -63,6 +64,19 @@ function waitForServer(process) {
 
 function waitForEvent(socket, event) {
   return withTimeout(new Promise(resolve => socket.once(event, resolve)), `${event} event`);
+}
+
+function waitForEvents(socket, event, count) {
+  return withTimeout(new Promise(resolve => {
+    const payloads = [];
+    const onEvent = payload => {
+      payloads.push(payload);
+      if (payloads.length !== count) return;
+      socket.off(event, onEvent);
+      resolve(payloads);
+    };
+    socket.on(event, onEvent);
+  }), `${count} ${event} events`);
 }
 
 function expectNoEvent(socket, event, trigger) {
@@ -119,6 +133,11 @@ function undoStroke(socket, roomId, strokeId, pageId = initialPageIds.get(roomId
 function redoStroke(socket, roomId, strokeId, pageId = initialPageIds.get(roomId)) {
   assert.equal(typeof pageId, 'string', `Missing initial page ID for room ${roomId}`);
   socket.emit('redo-stroke', { roomId, pageId, strokeId });
+}
+
+function createPage(socket, roomId, requestId = `page-request-${++pageRequestSequence}`) {
+  socket.emit('create-page', { roomId, requestId });
+  return requestId;
 }
 
 function getInitialPage(roomState) {
@@ -219,27 +238,80 @@ test('creates one stable initial page and broadcasts server-created pages in ins
 
   const aliceReceivesSecondPage = waitForEvent(alice, 'page-created');
   const bobReceivesSecondPage = waitForEvent(bob, 'page-created');
-  alice.emit('create-page', { roomId });
+  const secondRequestId = createPage(alice, roomId);
   const secondPageForAlice = await aliceReceivesSecondPage;
   const secondPageForBob = await bobReceivesSecondPage;
 
   assert.equal(secondPageForAlice.page.id, secondPageForBob.page.id);
+  assert.equal(secondPageForAlice.requestId, secondRequestId);
+  assert.equal(secondPageForAlice.createdBy, alice.id);
   assert.notEqual(secondPageForAlice.page.id, firstPage.id);
   assert.deepEqual(secondPageForAlice.page.strokes, []);
 
   const aliceReceivesThirdPage = waitForEvent(alice, 'page-created');
   const bobReceivesThirdPage = waitForEvent(bob, 'page-created');
-  bob.emit('create-page', { roomId });
+  const thirdRequestId = createPage(bob, roomId);
   const thirdPageForAlice = await aliceReceivesThirdPage;
   const thirdPageForBob = await bobReceivesThirdPage;
 
   assert.equal(thirdPageForAlice.page.id, thirdPageForBob.page.id);
+  assert.equal(thirdPageForAlice.requestId, thirdRequestId);
+  assert.equal(thirdPageForAlice.createdBy, bob.id);
   const lateJoiner = await joinRoom(await connectClient(), roomId, 'Charlie', '#10b981');
   assert.deepEqual(lateJoiner.pages.map(page => page.id), [
     firstPage.id,
     secondPageForAlice.page.id,
     thirdPageForAlice.page.id
   ]);
+
+  await Promise.all([...clients].map(disconnectClient));
+  await waitForEmptyRooms();
+});
+
+test('correlates concurrent page creation requests without trusting client page IDs', async () => {
+  const roomId = `page-concurrency-${Date.now()}`;
+  const alice = await connectClient();
+  await joinRoom(alice, roomId, 'Alice', '#3b82f6');
+  const bob = await connectClient();
+  await joinRoom(bob, roomId, 'Bob', '#ef4444');
+
+  const aliceEvents = waitForEvents(alice, 'page-created', 2);
+  const bobEvents = waitForEvents(bob, 'page-created', 2);
+  const aliceRequestId = createPage(alice, roomId, 'alice-client-request');
+  const bobRequestId = createPage(bob, roomId, 'bob-client-request');
+
+  const alicePayloads = await aliceEvents;
+  const bobPayloads = await bobEvents;
+  assert.deepEqual(alicePayloads, bobPayloads);
+  assert.deepEqual(new Set(alicePayloads.map(payload => payload.requestId)), new Set([aliceRequestId, bobRequestId]));
+  assert.deepEqual(new Set(alicePayloads.map(payload => payload.createdBy)), new Set([alice.id, bob.id]));
+  assert.equal(new Set(alicePayloads.map(payload => payload.page.id)).size, 2);
+  assert.equal(alicePayloads.some(payload => payload.page.id === payload.requestId), false);
+  assert.equal(alicePayloads.every(payload => Array.isArray(payload.page.strokes) && payload.page.strokes.length === 0), true);
+
+  await Promise.all([...clients].map(disconnectClient));
+  await waitForEmptyRooms();
+});
+
+test('enforces the server-side page limit without mutating the room', async () => {
+  const roomId = `page-limit-${Date.now()}`;
+  const alice = await connectClient();
+  await joinRoom(alice, roomId, 'Alice', '#3b82f6');
+
+  // The initial page counts toward the server-enforced limit of 50 pages.
+  for (let index = 1; index < 50; index += 1) {
+    const pageCreated = waitForEvent(alice, 'page-created');
+    const requestId = createPage(alice, roomId, `limit-request-${index}`);
+    const payload = await pageCreated;
+    assert.equal(payload.requestId, requestId);
+  }
+
+  const rejected = waitForEvent(alice, 'page-create-rejected');
+  createPage(alice, roomId, 'limit-request-rejected');
+  assert.deepEqual(await rejected, { requestId: 'limit-request-rejected', reason: 'limit-reached' });
+
+  const verifier = await joinRoom(await connectClient(), roomId, 'Verifier', '#10b981');
+  assert.equal(verifier.pages.length, 50);
 
   await Promise.all([...clients].map(disconnectClient));
   await waitForEmptyRooms();
@@ -257,13 +329,13 @@ test('rejects malformed, unjoined, and cross-room page creation', async () => {
   await joinRoom(bob, roomTwo, 'Bob', '#ef4444');
 
   await expectNoEvent(witness, 'page-created', () => {
-    attacker.emit('create-page', { roomId: roomOne });
+    createPage(attacker, roomOne);
   });
   await expectNoEvent(bob, 'page-created', () => {
-    alice.emit('create-page', { roomId: roomTwo });
+    createPage(alice, roomTwo);
   });
 
-  for (const payload of [null, {}, { roomId: '' }, { roomId: 123 }, { roomId: roomOne, pageId: 'client-chosen-page' }]) {
+  for (const payload of [null, {}, { roomId: '' }, { roomId: 123 }, { roomId: roomOne }, { roomId: roomOne, requestId: '' }, { roomId: roomOne, requestId: 123 }, { roomId: roomOne, requestId: 'x'.repeat(101) }, { roomId: roomOne, requestId: 'client-chosen-page', pageId: 'client-page-id' }]) {
     await expectNoEvent(witness, 'page-created', () => {
       alice.emit('create-page', payload);
     });
@@ -325,7 +397,7 @@ test('keeps page-aware strokes isolated and broadcasts their authoritative page 
 
   const aliceReceivesPage = waitForEvent(alice, 'page-created');
   const bobReceivesPage = waitForEvent(bob, 'page-created');
-  alice.emit('create-page', { roomId });
+  createPage(alice, roomId);
   const secondPageId = (await aliceReceivesPage).page.id;
   assert.equal((await bobReceivesPage).page.id, secondPageId);
 
@@ -423,7 +495,7 @@ test('scopes undo, redo, and redo branching by both user and page', async () => 
   await joinRoom(bob, roomId, 'Bob', '#ef4444');
 
   const aliceReceivesPage = waitForEvent(alice, 'page-created');
-  alice.emit('create-page', { roomId });
+  createPage(alice, roomId);
   const secondPageId = (await aliceReceivesPage).page.id;
 
   const firstPageStroke = { id: `history-p1-${Date.now()}`, userId: 'ignored-by-server', tool: 'pen', color: '#000000', width: 5, points: [{ x: 1, y: 1 }, { x: 2, y: 2 }] };
@@ -492,7 +564,7 @@ test('rejects malformed, unknown, and cross-page history requests without mutati
   const bob = await connectClient();
   await joinRoom(bob, roomId, 'Bob', '#ef4444');
   const aliceReceivesPage = waitForEvent(alice, 'page-created');
-  alice.emit('create-page', { roomId });
+  createPage(alice, roomId);
   const secondPageId = (await aliceReceivesPage).page.id;
   const otherRoomId = `page-history-other-${Date.now()}`;
   const otherRoom = await joinRoom(alice, otherRoomId, 'Alice', '#3b82f6');

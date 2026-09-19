@@ -2,6 +2,7 @@ import { Stroke } from '../rooms/types.js';
 
 export const MAX_ROOM_ID_LENGTH = 100;
 export const MAX_PAGE_ID_LENGTH = 100;
+export const MAX_PAGE_REQUEST_ID_LENGTH = 100;
 export const MAX_USERNAME_LENGTH = 80;
 export const MAX_STROKE_ID_LENGTH = 100;
 export const MAX_STROKE_POINTS = 10_000;
@@ -31,6 +32,7 @@ interface DrawStrokePayload {
 
 interface CreatePagePayload {
   roomId: string;
+  requestId: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -78,10 +80,10 @@ export function parseStrokeCommandPayload(value: unknown): StrokeCommandPayload 
 }
 
 export function parseCreatePagePayload(value: unknown): CreatePagePayload | null {
-  if (!isRecord(value) || Object.keys(value).some(key => key !== 'roomId')) return null;
-  if (!isValidRoomId(value.roomId)) return null;
+  if (!isRecord(value) || Object.keys(value).some(key => !['roomId', 'requestId'].includes(key))) return null;
+  if (!isValidRoomId(value.roomId) || !isBoundedNonEmptyString(value.requestId, MAX_PAGE_REQUEST_ID_LENGTH)) return null;
 
-  return { roomId: value.roomId };
+  return { roomId: value.roomId, requestId: value.requestId };
 }
 
 export function parseDrawStrokePayload(value: unknown, userId: string): DrawStrokePayload | null {

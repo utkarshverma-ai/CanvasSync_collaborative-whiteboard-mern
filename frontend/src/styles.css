@@ -1642,6 +1642,7 @@ canvas {
   background: var(--workspace-surface);
   box-shadow: 0 1px 2px rgba(48, 45, 38, 0.04), 0 10px 28px rgba(48, 45, 38, 0.06);
   transition: border-color 160ms ease, box-shadow 160ms ease;
+  scroll-margin-top: 76px;
 }
 
 .canvas-page.is-active {
@@ -1706,6 +1707,47 @@ canvas {
   color: color-mix(in srgb, var(--entry-teal) 56%, var(--workspace-muted));
   font-size: 24px;
 }
+
+.add-page-control {
+  display: grid;
+  width: min(460px, 100%);
+  grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
+  align-items: center;
+  gap: 14px;
+  margin: 2px auto 0;
+}
+
+.add-page-control > span {
+  height: 1px;
+  background: color-mix(in srgb, var(--workspace-border) 82%, transparent);
+}
+
+.add-page-control button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1px solid color-mix(in srgb, var(--entry-teal) 26%, var(--workspace-border));
+  border-radius: 11px;
+  background: var(--workspace-surface);
+  color: var(--entry-teal);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 720;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.add-page-control button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--entry-teal) 48%, var(--workspace-border));
+  background: var(--entry-sage);
+}
+
+.add-page-control button:hover:not(:disabled) i:not(.fa-spin) { transform: rotate(90deg); }
+.add-page-control button:active:not(:disabled) { transform: translateY(1px); }
+.add-page-control button:disabled { cursor: not-allowed; opacity: 0.58; }
+.add-page-control button i { transition: transform 150ms ease; }
 
 .workspace-shell button:focus-visible,
 .workspace-shell input:focus-visible {
@@ -1975,6 +2017,9 @@ canvas {
   .canvas-page-board { min-height: clamp(330px, 100vw, 470px); border-radius: 8px; aspect-ratio: 5 / 4; }
   .canvas-page-empty-state { font-size: 12px; }
   .canvas-page-empty-state i { font-size: 20px; }
+  .add-page-control { width: min(320px, 100%); grid-template-columns: 1fr; margin-top: 4px; }
+  .add-page-control > span { display: none; }
+  .add-page-control button { width: 100%; }
   .workspace-header { max-width: calc(100vw - 158px); }
   .workspace-brand { min-height: 46px; gap: 8px; padding: 4px 9px 4px 4px; border-radius: 12px; }
   .workspace-brand-logo { --logo-gap: 7px; font-size: 14px; }

@@ -1,5 +1,5 @@
 import { Server, Socket } from 'socket.io';
-import { clearRedoStack, createBoardPage, deleteRoom, forEachRoom, getOrCreateRedoStack, getOrCreateRoom, getPageById, getRedoStack, getRoom } from '../rooms/roomStore.js';
+import { clearRedoStack, createBoardPage, deleteRoom, forEachRoom, getOrCreateRedoStack, getOrCreateRoom, getPageById, getRedoStack, getRoom, MAX_PAGES_PER_ROOM } from '../rooms/roomStore.js';
 import { parseCreatePagePayload, parseDrawStrokePayload, parseJoinRoomPayload, parseStrokeCommandPayload } from '../validation/socketValidation.js';
 
 export function registerWhiteboardHandlers(io: Server, socket: Socket) {
@@ -41,9 +41,14 @@ export function registerWhiteboardHandlers(io: Server, socket: Socket) {
     const room = getRoom(command.roomId);
     if (!room) return;
 
+    if (room.pages.length >= MAX_PAGES_PER_ROOM) {
+      socket.emit('page-create-rejected', { requestId: command.requestId, reason: 'limit-reached' });
+      return;
+    }
+
     const page = createBoardPage();
     room.pages.push(page);
-    io.to(command.roomId).emit('page-created', { page });
+    io.to(command.roomId).emit('page-created', { page, requestId: command.requestId, createdBy: socket.id });
   });
 
   socket.on('draw-stroke', (data: unknown) => {

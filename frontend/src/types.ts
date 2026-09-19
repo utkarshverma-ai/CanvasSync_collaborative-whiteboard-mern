@@ -29,6 +29,12 @@ export interface PageStrokeCommandPayload {
   strokeId: string;
 }
 
+export interface PageCreatedPayload {
+  page: BoardPage;
+  requestId: string;
+  createdBy: string;
+}
+
 export interface UserPresence {
   id: string;
   name: string;

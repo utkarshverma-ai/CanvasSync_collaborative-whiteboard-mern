@@ -3,6 +3,8 @@ import { BoardPage, Room, Stroke } from './types.js';
 
 const rooms = new Map<string, Room>();
 
+export const MAX_PAGES_PER_ROOM = 50;
+
 export function createBoardPage(): BoardPage {
   return {
     id: randomUUID(),

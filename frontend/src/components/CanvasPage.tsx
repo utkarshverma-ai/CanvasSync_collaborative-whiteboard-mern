@@ -12,6 +12,7 @@ interface CanvasPageProps {
   getUserId: () => string;
   onActivate: (pageId: string) => void;
   onCompletedStroke: (pageId: string, stroke: Stroke) => void;
+  onPageElement: (pageId: string, element: HTMLElement | null) => void;
 }
 
 const CanvasPage = forwardRef<CanvasBoardHandle, CanvasPageProps>(({
@@ -23,12 +24,14 @@ const CanvasPage = forwardRef<CanvasBoardHandle, CanvasPageProps>(({
   width,
   getUserId,
   onActivate,
-  onCompletedStroke
+  onCompletedStroke,
+  onPageElement
 }, ref) => (
   <section
     className={`canvas-page ${isActive ? 'is-active' : ''}`}
     role="group"
     aria-label={`Page ${pageNumber}${isActive ? ', active page' : ''}`}
+    ref={(element) => onPageElement(page.id, element)}
     tabIndex={0}
     onPointerDown={() => onActivate(page.id)}
     onFocus={() => onActivate(page.id)}
