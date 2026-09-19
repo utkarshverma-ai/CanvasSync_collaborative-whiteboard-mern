@@ -15,6 +15,7 @@ console.log('🧪 Testing Socket.IO Collaboration...\n');
 // Simulate User 1
 const user1 = io(BACKEND_URL);
 let user1Id = null;
+let user1PageId = null;
 
 user1.on('connect', () => {
     user1Id = user1.id;
@@ -28,8 +29,10 @@ user1.on('connect', () => {
 });
 
 user1.on('load-room', (data) => {
+    user1PageId = data.pages[0]?.id ?? null;
     console.log('📦 User 1 loaded room:', {
-        strokes: data.strokes.length,
+        pages: data.pages.length,
+        strokes: data.pages[0]?.strokes.length ?? 0,
         users: data.users.length
     });
 });
@@ -42,6 +45,7 @@ user1.on('user-joined', (data) => {
         console.log('✏️  User 1 drawing stroke...');
         user1.emit('draw-stroke', {
             roomId: TEST_ROOM,
+            pageId: user1PageId,
             stroke: {
                 id: 'stroke-1',
                 userId: user1Id,
@@ -54,8 +58,8 @@ user1.on('user-joined', (data) => {
     }, 500);
 });
 
-user1.on('remote-stroke', (stroke) => {
-    console.log('🎨 User 1 received remote stroke:', stroke.id, 'from', stroke.userId);
+user1.on('remote-stroke', ({ pageId, stroke }) => {
+    console.log('🎨 User 1 received remote stroke:', stroke.id, 'on page', pageId, 'from', stroke.userId);
 
     // Test passed!
     setTimeout(() => {
@@ -69,6 +73,7 @@ user1.on('remote-stroke', (stroke) => {
 setTimeout(() => {
     const user2 = io(BACKEND_URL);
     let user2Id = null;
+    let user2PageId = null;
 
     user2.on('connect', () => {
         user2Id = user2.id;
@@ -82,20 +87,23 @@ setTimeout(() => {
     });
 
     user2.on('load-room', (data) => {
+        user2PageId = data.pages[0]?.id ?? null;
         console.log('📦 User 2 loaded room:', {
-            strokes: data.strokes.length,
+            pages: data.pages.length,
+            strokes: data.pages[0]?.strokes.length ?? 0,
             users: data.users.length
         });
     });
 
-    user2.on('remote-stroke', (stroke) => {
-        console.log('🎨 User 2 received remote stroke:', stroke.id, 'from', stroke.userId);
+    user2.on('remote-stroke', ({ pageId, stroke }) => {
+        console.log('🎨 User 2 received remote stroke:', stroke.id, 'on page', pageId, 'from', stroke.userId);
 
         // User 2 draws back
         setTimeout(() => {
             console.log('✏️  User 2 drawing stroke...');
             user2.emit('draw-stroke', {
                 roomId: TEST_ROOM,
+                pageId: user2PageId,
                 stroke: {
                     id: 'stroke-2',
                     userId: user2Id,

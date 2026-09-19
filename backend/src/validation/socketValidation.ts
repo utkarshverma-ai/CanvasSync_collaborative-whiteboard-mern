@@ -1,6 +1,8 @@
 import { Stroke } from '../rooms/types.js';
 
 export const MAX_ROOM_ID_LENGTH = 100;
+export const MAX_PAGE_ID_LENGTH = 100;
+export const MAX_PAGE_REQUEST_ID_LENGTH = 100;
 export const MAX_USERNAME_LENGTH = 80;
 export const MAX_STROKE_ID_LENGTH = 100;
 export const MAX_STROKE_POINTS = 10_000;
@@ -18,12 +20,19 @@ interface JoinRoomPayload {
 
 interface StrokeCommandPayload {
   roomId: string;
+  pageId: string;
   strokeId: string;
 }
 
 interface DrawStrokePayload {
   roomId: string;
+  pageId: string;
   stroke: Stroke;
+}
+
+interface CreatePagePayload {
+  roomId: string;
+  requestId: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,6 +45,10 @@ function isBoundedNonEmptyString(value: unknown, maxLength: number): value is st
 
 export function isValidRoomId(value: unknown): value is string {
   return isBoundedNonEmptyString(value, MAX_ROOM_ID_LENGTH);
+}
+
+export function isValidPageId(value: unknown): value is string {
+  return isBoundedNonEmptyString(value, MAX_PAGE_ID_LENGTH);
 }
 
 export function parseJoinRoomPayload(value: unknown): JoinRoomPayload | null {
@@ -53,18 +66,34 @@ export function parseJoinRoomPayload(value: unknown): JoinRoomPayload | null {
 }
 
 export function parseStrokeCommandPayload(value: unknown): StrokeCommandPayload | null {
-  if (!isRecord(value)) return null;
+  if (
+    !isRecord(value)
+    || Object.keys(value).some(key => !['roomId', 'pageId', 'strokeId'].includes(key))
+  ) return null;
 
-  const { roomId, strokeId } = value;
-  if (!isValidRoomId(roomId) || !isBoundedNonEmptyString(strokeId, MAX_STROKE_ID_LENGTH)) {
+  const { roomId, pageId, strokeId } = value;
+  if (!isValidRoomId(roomId) || !isValidPageId(pageId) || !isBoundedNonEmptyString(strokeId, MAX_STROKE_ID_LENGTH)) {
     return null;
   }
 
-  return { roomId, strokeId };
+  return { roomId, pageId, strokeId };
+}
+
+export function parseCreatePagePayload(value: unknown): CreatePagePayload | null {
+  if (!isRecord(value) || Object.keys(value).some(key => !['roomId', 'requestId'].includes(key))) return null;
+  if (!isValidRoomId(value.roomId) || !isBoundedNonEmptyString(value.requestId, MAX_PAGE_REQUEST_ID_LENGTH)) return null;
+
+  return { roomId: value.roomId, requestId: value.requestId };
 }
 
 export function parseDrawStrokePayload(value: unknown, userId: string): DrawStrokePayload | null {
-  if (!isRecord(value) || !isValidRoomId(value.roomId) || !isRecord(value.stroke)) {
+  if (
+    !isRecord(value)
+    || Object.keys(value).some(key => !['roomId', 'pageId', 'stroke'].includes(key))
+    || !isValidRoomId(value.roomId)
+    || !isValidPageId(value.pageId)
+    || !isRecord(value.stroke)
+  ) {
     return null;
   }
 
@@ -80,6 +109,7 @@ export function parseDrawStrokePayload(value: unknown, userId: string): DrawStro
 
   return {
     roomId: value.roomId,
+    pageId: value.pageId,
     stroke: {
       id,
       userId,

@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Stroke, UserPresence } from '../types';
+import { BoardPage, PageCreatedPayload, PageStrokeCommandPayload, PageStrokePayload, Stroke, UserPresence } from '../types';
 
 interface RoomSocketHandlers {
-  onRoomLoaded: (data: { strokes: Stroke[]; users: UserPresence[] }) => void;
-  onRemoteStroke: (stroke: Stroke) => void;
+  onRoomLoaded: (data: { pages: BoardPage[]; users: UserPresence[] }) => void;
+  onPageCreated: (payload: PageCreatedPayload) => void;
+  onPageCreateRejected: (payload: { requestId: string; reason: 'limit-reached' }) => void;
+  onRemoteStroke: (payload: PageStrokePayload) => void;
   onUserJoined: (user: { userId: string; userName: string; userColor: string }) => void;
   onUserLeft: (user: { userId: string; userName: string }) => void;
-  onUndoConfirmed: (strokeId: string) => void;
-  onRedoConfirmed: (stroke: Stroke) => void;
+  onUndoConfirmed: (payload: PageStrokeCommandPayload) => void;
+  onRedoConfirmed: (payload: PageStrokePayload) => void;
 }
 
 interface UseRoomSocketOptions extends RoomSocketHandlers {
@@ -24,6 +26,8 @@ export function useRoomSocket({
   userName,
   userColor,
   onRoomLoaded,
+  onPageCreated,
+  onPageCreateRejected,
   onRemoteStroke,
   onUserJoined,
   onUserLeft,
@@ -64,6 +68,8 @@ export function useRoomSocket({
     socket.on('disconnect', onDisconnect);
     socket.on('reconnect', joinRoom);
     socket.on('load-room', onRoomLoaded);
+    socket.on('page-created', onPageCreated);
+    socket.on('page-create-rejected', onPageCreateRejected);
     socket.on('remote-stroke', onRemoteStroke);
     socket.on('user-joined', onUserJoined);
     socket.on('user-left', onUserLeft);
@@ -75,6 +81,8 @@ export function useRoomSocket({
       socket.off('disconnect', onDisconnect);
       socket.off('reconnect', joinRoom);
       socket.off('load-room', onRoomLoaded);
+      socket.off('page-created', onPageCreated);
+      socket.off('page-create-rejected', onPageCreateRejected);
       socket.off('remote-stroke', onRemoteStroke);
       socket.off('user-joined', onUserJoined);
       socket.off('user-left', onUserLeft);
@@ -85,21 +93,28 @@ export function useRoomSocket({
         socketRef.current = null;
       }
     };
-  }, [roomId, userName, userColor, onRoomLoaded, onRemoteStroke, onUserJoined, onUserLeft, onUndoConfirmed, onRedoConfirmed]);
+  }, [roomId, userName, userColor, onRoomLoaded, onPageCreated, onPageCreateRejected, onRemoteStroke, onUserJoined, onUserLeft, onUndoConfirmed, onRedoConfirmed]);
 
-  const emitCompletedStroke = useCallback((stroke: Stroke) => {
-    socketRef.current?.emit('draw-stroke', { roomId, stroke });
+  const requestPageCreation = useCallback((requestId: string) => {
+    socketRef.current?.emit('create-page', { roomId, requestId });
   }, [roomId]);
 
-  const requestUndo = useCallback((strokeId: string) => {
-    socketRef.current?.emit('undo-stroke', { roomId, strokeId });
+  const emitCompletedStroke = useCallback((pageId: string, stroke: Stroke) => {
+    socketRef.current?.emit('draw-stroke', { roomId, pageId, stroke });
   }, [roomId]);
 
-  const requestRedo = useCallback((strokeId: string) => {
-    socketRef.current?.emit('redo-stroke', { roomId, strokeId });
+  const requestUndo = useCallback((pageId: string, strokeId: string) => {
+    socketRef.current?.emit('undo-stroke', { roomId, pageId, strokeId });
   }, [roomId]);
 
-  const isSocketAvailable = useCallback(() => socketRef.current !== null, []);
+  const requestRedo = useCallback((pageId: string, strokeId: string) => {
+    socketRef.current?.emit('redo-stroke', { roomId, pageId, strokeId });
+  }, [roomId]);
 
-  return { userIdRef, emitCompletedStroke, requestUndo, requestRedo, isSocketAvailable, connectionStatus };
+  // A disconnected Socket.IO instance may queue emits for a later reconnect. History
+  // commands must stay unavailable until the room is connected again so they cannot
+  // apply after the user has moved on to a different page or board state.
+  const isSocketAvailable = useCallback(() => socketRef.current?.connected === true, []);
+
+  return { userIdRef, requestPageCreation, emitCompletedStroke, requestUndo, requestRedo, isSocketAvailable, connectionStatus };
 }
