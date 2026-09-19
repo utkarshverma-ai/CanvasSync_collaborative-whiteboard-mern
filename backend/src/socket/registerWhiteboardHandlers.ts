@@ -1,6 +1,6 @@
 import { Server, Socket } from 'socket.io';
-import { deleteRoom, forEachRoom, getOrCreateRoom, getRoom } from '../rooms/roomStore.js';
-import { parseDrawStrokePayload, parseJoinRoomPayload, parseStrokeCommandPayload } from '../validation/socketValidation.js';
+import { clearRedoStack, createBoardPage, deleteRoom, forEachRoom, getOrCreateRedoStack, getOrCreateRoom, getPageById, getRedoStack, getRoom, MAX_PAGES_PER_ROOM } from '../rooms/roomStore.js';
+import { parseCreatePagePayload, parseDrawStrokePayload, parseJoinRoomPayload, parseStrokeCommandPayload } from '../validation/socketValidation.js';
 
 export function registerWhiteboardHandlers(io: Server, socket: Socket) {
   console.log(`Client connected: ${socket.id}`);
@@ -18,7 +18,7 @@ export function registerWhiteboardHandlers(io: Server, socket: Socket) {
     console.log(`${userName} joined room ${roomId}`);
 
     socket.emit('load-room', {
-      strokes: room.strokes,
+      pages: room.pages,
       users: Array.from(room.users.entries()).map(([id, user]) => ({
         id,
         name: user.name,
@@ -34,17 +34,37 @@ export function registerWhiteboardHandlers(io: Server, socket: Socket) {
     });
   });
 
+  socket.on('create-page', (data: unknown) => {
+    const command = parseCreatePagePayload(data);
+    if (!command || !socket.rooms.has(command.roomId)) return;
+
+    const room = getRoom(command.roomId);
+    if (!room) return;
+
+    if (room.pages.length >= MAX_PAGES_PER_ROOM) {
+      socket.emit('page-create-rejected', { requestId: command.requestId, reason: 'limit-reached' });
+      return;
+    }
+
+    const page = createBoardPage();
+    room.pages.push(page);
+    io.to(command.roomId).emit('page-created', { page, requestId: command.requestId, createdBy: socket.id });
+  });
+
   socket.on('draw-stroke', (data: unknown) => {
     const drawData = parseDrawStrokePayload(data, socket.id);
     if (!drawData || !socket.rooms.has(drawData.roomId)) return;
 
-    const { roomId, stroke } = drawData;
+    const { roomId, pageId, stroke } = drawData;
     const room = getRoom(roomId);
     if (!room) return;
 
-    room.strokes.push(stroke);
-    room.redoStacks.delete(socket.id);
-    socket.to(roomId).emit('remote-stroke', stroke);
+    const page = getPageById(room, pageId);
+    if (!page) return;
+
+    page.strokes.push(stroke);
+    clearRedoStack(room, socket.id, pageId);
+    socket.to(roomId).emit('remote-stroke', { pageId, stroke });
     console.log(`Stroke added to room ${roomId} by ${socket.id}`);
   });
 
@@ -52,20 +72,22 @@ export function registerWhiteboardHandlers(io: Server, socket: Socket) {
     const command = parseStrokeCommandPayload(data);
     if (!command || !socket.rooms.has(command.roomId)) return;
 
-    const { roomId, strokeId } = command;
+    const { roomId, pageId, strokeId } = command;
     const room = getRoom(roomId);
     if (!room) return;
 
-    const strokeIndex = room.strokes.findIndex(
+    const page = getPageById(room, pageId);
+    if (!page) return;
+
+    const strokeIndex = page.strokes.findIndex(
       stroke => stroke.id === strokeId && stroke.userId === socket.id
     );
     if (strokeIndex === -1) return;
 
-    const [stroke] = room.strokes.splice(strokeIndex, 1);
-    const redoStack = room.redoStacks.get(socket.id) || [];
+    const [stroke] = page.strokes.splice(strokeIndex, 1);
+    const redoStack = getOrCreateRedoStack(room, socket.id, pageId);
     redoStack.push(stroke);
-    room.redoStacks.set(socket.id, redoStack);
-    io.to(roomId).emit('undo-stroke-remote', strokeId);
+    io.to(roomId).emit('undo-stroke-remote', { pageId, strokeId });
     console.log(`Stroke ${strokeId} undone in room ${roomId}`);
   });
 
@@ -73,20 +95,25 @@ export function registerWhiteboardHandlers(io: Server, socket: Socket) {
     const command = parseStrokeCommandPayload(data);
     if (!command || !socket.rooms.has(command.roomId)) return;
 
-    const { roomId, strokeId } = command;
+    const { roomId, pageId, strokeId } = command;
     const room = getRoom(roomId);
-    const redoStack = room?.redoStacks.get(socket.id);
+    if (!room) return;
+
+    const page = getPageById(room, pageId);
+    if (!page) return;
+
+    const redoStack = getRedoStack(room, socket.id, pageId);
     const stroke = redoStack?.[redoStack.length - 1];
 
-    if (!room || !stroke || stroke.id !== strokeId || stroke.userId !== socket.id) return;
-    if (room.strokes.some(activeStroke => activeStroke.id === stroke.id)) return;
+    if (!stroke || stroke.id !== strokeId || stroke.userId !== socket.id) return;
+    if (page.strokes.some(activeStroke => activeStroke.id === stroke.id)) return;
 
     redoStack.pop();
     if (redoStack.length === 0) {
-      room.redoStacks.delete(socket.id);
+      clearRedoStack(room, socket.id, pageId);
     }
-    room.strokes.push(stroke);
-    io.to(roomId).emit('redo-stroke-remote', stroke);
+    page.strokes.push(stroke);
+    io.to(roomId).emit('redo-stroke-remote', { pageId, stroke });
     console.log(`Stroke ${strokeId} redone in room ${roomId}`);
   });
 
