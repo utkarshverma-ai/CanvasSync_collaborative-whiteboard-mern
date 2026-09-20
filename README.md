@@ -1,167 +1,190 @@
-# 🎨 CanvasSync
+<h1 align="center">CanvasSync</h1>
 
-### Real-Time Collaborative Whiteboard
+<p align="center">
+  <strong>Real-time collaborative multi-page whiteboard built with React, TypeScript, Node.js, Express, Socket.IO, and the HTML5 Canvas API.</strong>
+</p>
 
-CanvasSync is a full-stack real-time collaborative whiteboard that allows multiple users to join shared rooms and draw together instantly.
-
-The application uses **React, TypeScript, Node.js, Express.js, Socket.IO, and HTML5 Canvas** to provide synchronized drawing, collaborator presence, room-based sessions, undo/redo functionality, invite sharing, and PNG export.
-
-> Built as a personal full-stack project to explore real-time communication, event-driven systems, shared application state, and WebSocket-based collaboration.
-
----
-
-## 🔗 Live Demo
-
-🌐 **Live Application:**  
-https://canvasync-livid.vercel.app/
-
-💻 **GitHub Repository:**  
-https://github.com/utkarshverma-ai/CanvasSync_collaborative-whiteboard-mern
+<p align="center">
+  <a href="https://canvasync-livid.vercel.app/"><strong>Live Demo</strong></a>
+  ·
+  <a href="#features">Features</a>
+  ·
+  <a href="#architecture">Architecture</a>
+  ·
+  <a href="#getting-started">Run Locally</a>
+</p>
 
 ---
 
-## ✨ Features
+## Overview
 
-### 🤝 Real-Time Collaboration
-- Multiple users can join the same whiteboard room
-- Drawing updates are synchronized using Socket.IO
-- New participants receive the current room state
-- Users can see collaborators joining and leaving the room
+CanvasSync is a real-time collaborative whiteboard where multiple users can join the same room, draw together, create additional board pages, see collaborator presence, undo or redo their own work, share the room, and export the active page as PNG.
 
-### 🖌️ Drawing Experience
-- Freehand pen drawing
-- Eraser tool
-- Custom drawing colors
-- Adjustable brush width
-- Responsive HTML5 Canvas
-
-### ↩️ Undo / Redo
-- Server-authoritative undo for a user's own strokes
-- Server-authoritative collaborative redo with LIFO history
-- Prevents users from undoing another collaborator's strokes
-
-### 🔗 Room-Based Sharing
-- Create a new collaborative workspace
-- Join an existing room using its Room ID
-- Room ID is stored in the URL
-- Copy and share the workspace link with collaborators
-
-### 📤 Export
-- Export the current whiteboard as a PNG image
-
-### 🔄 Connection Handling
-- Automatic Socket.IO reconnection
-- Rejoins the active room after reconnecting
-- Synchronizes room data when users connect
-
----
-
-## 🛠️ Tech Stack
-
-| Area | Technologies |
-|---|---|
-| **Frontend** | React.js, TypeScript, Vite |
-| **Canvas** | HTML5 Canvas API |
-| **Backend** | Node.js, Express.js, TypeScript |
-| **Real-Time Communication** | Socket.IO, WebSockets |
-| **State / Collaboration** | React State, Socket.IO Events |
-| **Deployment** | Vercel + Node.js backend hosting |
-
----
-
-## 🏗️ Architecture
+The project is built around an event-driven client/server model:
 
 ```text
-┌─────────────────────┐
-│   React Frontend    │
-│                     │
-│  HTML5 Canvas       │
-│  Drawing Tools      │
-│  Room UI            │
-│  Collaborators      │
-└─────────┬───────────┘
-          │
-          │ Socket.IO / WebSockets
-          │
-          ▼
-┌─────────────────────┐
-│ Node.js + Express   │
-│ Socket.IO Server    │
-│                     │
-│ Room Management     │
-│ Stroke Sync         │
-│ User Presence       │
-│ Undo Validation     │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│ In-Memory Room      │
-│ State               │
-│                     │
-│ • Users             │
-│ • Strokes           │
-└─────────────────────┘
+React UI
+   ↓
+HTML5 Canvas
+   ↓
+Socket.IO client
+   ↓
+Node.js + Express + Socket.IO server
+   ↓
+Server-authoritative room, page, stroke, presence, and history state
 ```
 
-The backend maintains active rooms in memory and uses Socket.IO events to synchronize users and drawing operations. A room and its strokes are removed when its final participant disconnects.
+CanvasSync focuses on the engineering problems behind collaborative software: synchronized shared state, ownership-aware history, reconnect behavior, page-scoped updates, and real-time event validation.
 
----
+## Features
 
-## ⚡ How Real-Time Synchronization Works
+| Area | What CanvasSync supports |
+| --- | --- |
+| Collaboration | Multiple users in the same room with synchronized drawing |
+| Multi-page boards | Collaborative page creation with up to 50 pages per active room |
+| Drawing | Pen, eraser, custom colors, adjustable brush width |
+| Presence | Join/leave updates and collaborator list |
+| Undo / redo | Server-authoritative, user-owned, page-scoped history |
+| Sharing | Room ID in the URL and copyable invite link |
+| Export | Export the active page as a PNG |
+| Connection handling | Reconnect attempts, room rejoin, connection-status UI |
+| Validation | Server-side validation of room, page, stroke, and history commands |
+| Testing | Frontend utility tests and backend Socket.IO collaboration tests |
 
-1. A user creates or joins a room.
-2. The frontend establishes a Socket.IO connection.
-3. The client emits a `join-room` event with the Room ID and user information.
-4. The server creates the room if it does not already exist.
-5. Existing strokes and collaborators are sent to the newly joined user.
-6. When a user completes a drawing stroke, the frontend emits `draw-stroke`.
-7. The server stores the stroke in the room state.
-8. The stroke is broadcast to the other users in the room.
-9. Remote clients render the received stroke on their canvas.
+## Real-time collaboration
 
-This creates a synchronized collaborative drawing experience without continuously refreshing the page.
+When a user joins a board:
 
----
+1. The browser opens a Socket.IO connection.
+2. The client emits `join-room` with the room ID and user presence data.
+3. The server creates the room if it does not already exist.
+4. The server returns the room's current pages, strokes, and connected users.
+5. New drawing strokes are sent to the server with a page ID.
+6. The server validates and stores each stroke in the active room state.
+7. Other participants receive the stroke through `remote-stroke` and render it locally.
 
-## 🔌 Main Socket Events
+This keeps collaborators synchronized without refreshing the page.
 
-| Event | Purpose |
-|---|---|
-| `join-room` | Join or create a collaborative room |
-| `load-room` | Load the room's current strokes and users |
-| `draw-stroke` | Send a completed drawing stroke |
-| `remote-stroke` | Receive another user's stroke |
-| `user-joined` | Notify clients when a collaborator joins |
-| `user-left` | Notify clients when a collaborator leaves |
-| `undo-stroke` | Request removal of a user's own stroke |
-| `undo-stroke-remote` | Synchronize an undo across clients |
-| `redo-stroke` | Request restoration of the user's latest undone stroke |
-| `redo-stroke-remote` | Synchronize a confirmed redo across clients |
+## Multi-page boards
 
----
+A room starts with one board page and collaborators can create more pages during the session.
 
-## 📁 Project Structure
+Page creation is **server-authoritative**:
+
+```text
+Client
+  │
+  ├── create-page { roomId, requestId }
+  │
+  ▼
+Socket.IO Server
+  │
+  ├── validates membership + room
+  ├── enforces MAX_PAGES_PER_ROOM
+  ├── creates a UUID-backed page
+  │
+  ▼
+page-created
+  │
+  └── broadcast to every collaborator
+```
+
+The current server limit is:
+
+```text
+50 pages per active room
+```
+
+Each page keeps its own stroke collection, and drawing/history operations include the target page ID.
+
+## Undo / redo ownership
+
+Undo and redo are intentionally not purely local UI operations.
+
+Each stroke is associated with the Socket.IO connection that created it. When an undo request reaches the server, the server verifies:
+
+- the room exists;
+- the socket belongs to the room;
+- the page exists;
+- the requested stroke exists;
+- the stroke belongs to the requesting socket.
+
+Only then is the stroke removed and the update broadcast.
+
+Redo history is also maintained per:
+
+```text
+user/socket → page → redo stack
+```
+
+This prevents one collaborator from undoing another collaborator's drawing and avoids mixing history between board pages.
+
+## Architecture
+
+```text
+┌────────────────────────────────────┐
+│ React + TypeScript Frontend        │
+│                                    │
+│ Landing / Room UI                  │
+│ Multi-page board                   │
+│ HTML5 Canvas renderer              │
+│ Toolbar + collaborators            │
+│ Local interaction state            │
+└─────────────────┬──────────────────┘
+                  │
+                  │ Socket.IO
+                  │
+                  ▼
+┌────────────────────────────────────┐
+│ Node.js + Express + TypeScript     │
+│ Socket.IO Server                   │
+│                                    │
+│ Room membership                    │
+│ Page creation                      │
+│ Stroke validation + sync           │
+│ Presence                           │
+│ Undo / redo ownership              │
+└─────────────────┬──────────────────┘
+                  │
+                  ▼
+┌────────────────────────────────────┐
+│ In-memory active room state        │
+│                                    │
+│ rooms                              │
+│ ├── pages                          │
+│ │   └── strokes                    │
+│ ├── users                          │
+│ └── per-user/page redo stacks      │
+└────────────────────────────────────┘
+```
+
+### Source layout
 
 ```text
 CanvasSync_collaborative-whiteboard-mern/
-│
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
+│   │   │   ├── BoardPages.tsx
 │   │   │   ├── CanvasBoard.tsx
+│   │   │   ├── CanvasPage.tsx
+│   │   │   ├── CanvasSyncLogo.tsx
 │   │   │   ├── Collaborators.tsx
+│   │   │   ├── LandingSections.tsx
 │   │   │   ├── Toolbar.tsx
 │   │   │   └── Whiteboard.tsx
 │   │   ├── hooks/
 │   │   │   └── useRoomSocket.ts
 │   │   ├── utils/
 │   │   │   ├── canvasRenderer.ts
-│   │   │   └── findLatestOwnedStroke.js
+│   │   │   ├── appendPage.js
+│   │   │   ├── appendStrokeToPage.js
+│   │   │   ├── findLatestOwnedStroke.js
+│   │   │   ├── pageCreation.js
+│   │   │   └── pageHistory.js
 │   │   ├── App.tsx
 │   │   ├── main.tsx
 │   │   └── types.ts
-│   ├── index.html
 │   ├── package.json
 │   └── vite.config.ts
 │
@@ -184,33 +207,80 @@ CanvasSync_collaborative-whiteboard-mern/
 └── README.md
 ```
 
----
+## Tech stack
 
-# 🚀 Getting Started
+### Frontend
 
-## Prerequisites
+- React 19
+- TypeScript
+- Vite
+- HTML5 Canvas API
+- Socket.IO Client
+- Tailwind CSS 4
 
-Make sure you have installed:
+### Backend
+
+- Node.js
+- Express
+- TypeScript
+- Socket.IO
+- CORS
+
+### State model
+
+CanvasSync currently uses **in-memory server state** for active collaboration sessions.
+
+Despite the repository's historical `mern` name, the current implementation does **not** use MongoDB or another persistent database.
+
+## Main Socket.IO events
+
+| Event | Direction | Purpose |
+| --- | --- | --- |
+| `join-room` | Client → Server | Join or create a room |
+| `load-room` | Server → Client | Send current pages, strokes, and users |
+| `create-page` | Client → Server | Request a new board page |
+| `page-created` | Server → Room | Synchronize a created page |
+| `page-create-rejected` | Server → Client | Reject page creation, e.g. page limit reached |
+| `draw-stroke` | Client → Server | Submit a completed page stroke |
+| `remote-stroke` | Server → Peers | Broadcast another user's stroke |
+| `user-joined` | Server → Room | Announce a collaborator joining |
+| `user-left` | Server → Room | Announce a collaborator leaving |
+| `undo-stroke` | Client → Server | Request ownership-validated undo |
+| `undo-stroke-remote` | Server → Room | Synchronize confirmed undo |
+| `redo-stroke` | Client → Server | Request restoration from redo history |
+| `redo-stroke-remote` | Server → Room | Synchronize confirmed redo |
+
+## Connection behavior
+
+The Socket.IO client is configured to reconnect automatically.
+
+When the connection returns:
+
+- CanvasSync updates the connection-status UI;
+- the client rejoins the current room;
+- the server sends the current room state again;
+- stale disconnected history commands remain unavailable until the socket is connected.
+
+This helps avoid applying undo/redo operations after a temporary disconnect against outdated local assumptions.
+
+## Getting started
+
+### Prerequisites
+
+Install:
 
 - Node.js
 - npm
 - Git
 
----
-
-## 1. Clone the repository
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/utkarshverma-ai/CanvasSync_collaborative-whiteboard-mern.git
-```
-
-```bash
 cd CanvasSync_collaborative-whiteboard-mern
 ```
 
----
-
-## 2. Start the backend
+### 2. Start the backend
 
 ```bash
 cd backend
@@ -218,21 +288,19 @@ npm ci
 npm run dev
 ```
 
-By default, the backend runs on:
+Default development server:
 
 ```text
 http://localhost:3002
 ```
 
-You can verify that the server is running using:
+Health endpoint:
 
 ```text
 http://localhost:3002/health
 ```
 
----
-
-## 3. Start the frontend
+### 3. Configure and start the frontend
 
 Open another terminal:
 
@@ -243,165 +311,176 @@ npm ci
 npm run dev
 ```
 
-Vite will display the local frontend URL in your terminal.
-
----
-
-## ⚙️ Environment Configuration
-
-Inside the frontend environment file:
+Set:
 
 ```env
 VITE_API_URL=http://localhost:3002
 ```
 
-For deployment, replace the local URL with your deployed Socket.IO backend URL.
+For a deployed frontend, point `VITE_API_URL` to the deployed Socket.IO backend.
 
-The backend also supports:
+### Backend environment
+
+The backend supports:
 
 ```env
 FRONTEND_URL=<your-frontend-url>
 PORT=<server-port>
 ```
 
----
+## Scripts and verification
 
-## ✅ Verification
+### Frontend
 
-Run the automated checks from each package:
+Run from `frontend/`:
 
 ```bash
-cd frontend
 npm test
 npm run build
+npm run dev
+npm run preview
 ```
 
+The current frontend test command covers ownership/history/page utility behavior, including:
+
+- latest owned stroke selection;
+- page-scoped stroke updates;
+- page history helpers;
+- page appending;
+- collaborative page-creation helpers.
+
+### Backend
+
+Run from `backend/`:
+
 ```bash
-cd backend
 npm run build
 npm test
 npm run start
 ```
 
-`npm run start` runs the compiled backend from `dist/`.
+The backend test suite exercises Socket.IO collaboration behavior.
 
----
-
-# 🧪 Collaboration Testing
-
-The backend contains a basic Socket.IO collaboration test script that simulates two users joining the same room and exchanging drawing strokes.
-
-Start the backend first and then run:
+There is also a collaboration smoke-test script:
 
 ```bash
 cd backend
 node scripts/collaboration-smoke-test.js
 ```
 
-The script checks whether connected clients can receive one another's drawing events.
+Start the backend before running the smoke test.
 
----
+## Deployment
 
-# 🧠 Key Engineering Concepts Used
+Live frontend:
 
-CanvasSync helped me work with several important software engineering concepts:
+**https://canvasync-livid.vercel.app/**
 
-- Real-time bidirectional communication
-- WebSockets and Socket.IO
-- Event-driven architecture
-- Client-server synchronization
-- Shared room state
-- React state management
-- HTML5 Canvas rendering
-- Reconnection handling
-- User presence
-- TypeScript interfaces
-- Express.js server development
-- Responsive UI interactions
-- Multi-user application behaviour
+The frontend can be deployed to Vercel. The Socket.IO backend must run on a Node-compatible host that supports long-lived real-time connections.
 
----
+Set the deployed frontend's:
 
-# 🔐 Undo Ownership
+```env
+VITE_API_URL=<deployed-backend-url>
+```
 
-CanvasSync associates every drawing stroke with the Socket.IO connection that created it.
+and configure the backend's:
 
-When an undo request reaches the server, the server verifies that the requested stroke belongs to that connected user before removing it.
+```env
+FRONTEND_URL=<deployed-frontend-url>
+```
 
-This prevents one collaborator from using the synchronized undo operation to remove another user's drawing.
+so CORS allows the production client.
 
----
+## Current scope and limitations
 
-# 📦 Current Project Scope
+CanvasSync currently provides **session-level collaboration**, not durable whiteboard persistence.
 
-CanvasSync currently keeps active room information in the **Node.js server's memory**.
+Important limitations:
 
-This includes:
+- active room state is held in one Node.js process;
+- when the final participant leaves a room, that room is deleted from server memory;
+- restarting the backend clears active rooms;
+- state is not shared between multiple backend instances;
+- there is no database-backed saved-board history;
+- there is no authentication or durable user identity;
+- identity/ownership is scoped to the active Socket.IO connection;
+- there is no rate limiting or room-level authorization;
+- page count is currently limited to 50 per active room.
 
-- Connected users
-- Drawing strokes
-- Active rooms
+These constraints keep the current architecture focused on real-time collaboration and make the scaling boundaries explicit.
 
-When a room becomes empty, its server-side state is removed.
+## Engineering concepts demonstrated
 
-Therefore, the current version provides **session-level collaboration rather than permanent database-backed persistence**.
+CanvasSync exercises:
 
----
+- real-time bidirectional communication;
+- WebSockets and Socket.IO;
+- event-driven architecture;
+- client/server state synchronization;
+- multi-user presence;
+- page-scoped collaborative state;
+- server-authoritative commands;
+- ownership-aware undo/redo;
+- reconnection and rejoin behavior;
+- HTML5 Canvas rendering;
+- TypeScript domain modeling;
+- validation of socket payloads;
+- responsive collaborative UI;
+- automated utility and Socket.IO integration testing.
 
-# ⚠️ Current Limitations
+## Roadmap
 
-- Room state is in memory and is removed after the last participant leaves.
-- The application runs as a single server process; state is not shared between server instances.
-- Identity is scoped to the current Socket.IO connection; there is no authentication, durable user identity, or rate limiting.
+Possible next steps:
 
----
+- PostgreSQL or MongoDB persistence for saved boards;
+- authenticated users and durable ownership;
+- permanent shareable whiteboards;
+- Redis adapter for horizontal Socket.IO scaling;
+- cursor presence;
+- zoom and pan;
+- text and shape tools;
+- image insertion;
+- page rename/reorder/delete;
+- version history;
+- room roles and permissions;
+- file/export enhancements;
+- rate limiting and abuse protection.
 
-# 🔮 Future Improvements
+## Why I built CanvasSync
 
-Potential improvements include:
+I wanted to build something beyond a traditional CRUD application and understand how multiple clients can safely mutate the same shared state in real time.
 
-- MongoDB or PostgreSQL persistence
-- User authentication
-- Permanent saved whiteboards
-- Named workspaces
-- Text tool
-- Image insertion
-- Improved shape tools
-- Cursor presence
-- Zoom and pan
-- Version history
-- Role-based room permissions
-- Redis-based scaling for multiple Socket.IO servers
-- Whiteboard sharing dashboard
+CanvasSync let me work directly with the problems behind collaborative applications:
 
----
+```text
+React interaction
+      ↓
+Canvas rendering
+      ↓
+Socket event
+      ↓
+Server validation
+      ↓
+Authoritative room update
+      ↓
+Broadcast
+      ↓
+Remote render
+```
 
-# 🎯 Why I Built CanvasSync
+The most interesting parts are not only drawing on a canvas, but coordinating ownership, page state, reconnection, ordering, and history across multiple connected users.
 
-I wanted to build something beyond a traditional CRUD application and understand how multiple clients can interact with the same application state in real time.
-
-CanvasSync allowed me to work directly with:
-
-**React UI → HTML5 Canvas → Socket.IO client → Node/Express server → real-time room events**
-
-and understand challenges such as synchronization, reconnection, user presence, event ownership, and state consistency.
-
----
-
-# 👨‍💻 Author
+## Author
 
 **Utkarsh Verma**
 
-B.Tech Computer Science & Engineering  
-GLA University
+Built as a full-stack real-time systems project focused on collaborative state synchronization, Socket.IO architecture, and product-quality whiteboard interactions.
 
 - GitHub: https://github.com/utkarshverma-ai
-- LinkedIn: Add your LinkedIn URL here
 
 ---
 
-## ⭐ Support
-
-If you find CanvasSync interesting, consider giving the repository a ⭐.
-
-Feedback and suggestions are welcome.
+<p align="center">
+  <strong>CanvasSync · Real-time collaboration, one board at a time.</strong>
+</p>
