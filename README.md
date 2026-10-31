@@ -129,7 +129,9 @@ This creates a synchronized collaborative drawing experience without continuousl
 | Event | Purpose |
 |---|---|
 | `join-room` | Join or create a collaborative room |
-| `load-room` | Load the room's current strokes and users |
+| `load-room` | Load the room's current pages, users, and latest 100 chat messages |
+| `send-chat-message` | Send room text with a client request ID and acknowledgement |
+| `chat-message` | Receive a server-confirmed room message (including the sender) |
 | `draw-stroke` | Send a completed drawing stroke |
 | `remote-stroke` | Receive another user's stroke |
 | `user-joined` | Notify clients when a collaborator joins |
@@ -352,7 +354,7 @@ Therefore, the current version provides **session-level collaboration rather tha
 
 - Room state is in memory and is removed after the last participant leaves.
 - The application runs as a single server process; state is not shared between server instances.
-- Identity is scoped to the current Socket.IO connection; there is no authentication, durable user identity, or rate limiting.
+- Identity is scoped to the current Socket.IO connection; there is no authentication, durable user identity, or private room access. Chat has a basic per-connection rate limit; other events do not.
 
 ---
 
@@ -405,3 +407,93 @@ GLA University
 If you find CanvasSync interesting, consider giving the repository a ⭐.
 
 Feedback and suggestions are welcome.
+
+
+## Room chat (V1)
+
+Use **Chat**, beside Share, to open or collapse the conversation. Messages belong to
+an entire room across all whiteboard pages. Each message shows the participant's
+name, collaborator color, and local time; your messages have a teal-tinted surface.
+The closed Chat button counts unread incoming messages. Enter sends; Shift+Enter
+adds a new line; Escape closes chat and restores focus. Older messages stay in view
+while you read; use **New messages** to jump to the latest conversation.
+
+Messages are plain text, trimmed, and limited to 500 characters. Sending requires a
+connected socket that has loaded its room. Failed sends retain the draft. The server
+allows five accepted messages per socket in a rolling ten-second window across
+rooms and returns structured acknowledgement errors. A lost acknowledgement is
+retried once with the same request ID, only on the same connection. Deduplication
+is scoped to the room and socket and retains the latest 500 accepted request IDs;
+retries within that window return the original message without rebroadcasting.
+A new connection has a new identity: offline sends are not queued or automatically
+replayed after reconnecting. Check restored history before resending an uncertain
+message after a disconnection.
+
+The latest **100 messages per active room** live only in this server process's
+memory. Late joiners and reconnecting clients receive that available history in
+`load-room`. All history and deduplication entries disappear when the last
+participant leaves or the server restarts. There is no database persistence,
+authentication, private messaging, or room access control. Anyone with a room ID
+can join; participant names and colors are self-selected and are not verified
+identities. The server derives chat sender metadata from that joined membership.
+This V1 assumes a single backend process, as does the rest of room state.
+
+To verify manually:
+
+1. Start the backend and frontend using the commands above.
+2. Join a room as Alice, use Share, and open that link in two other browser windows
+   or profiles as Bob and Carol. Open Chat in each and exchange messages.
+3. Close Carol's panel, send from Alice, and check Carol's unread count. Reopen it
+   and confirm the count clears. Try Enter, Shift+Enter, Escape, and blank input.
+4. Add a whiteboard page: the conversation should stay shared. Draw, undo, redo,
+   and use Share while chat is open. Join a different room and verify isolation.
+5. Leave Bob connected, refresh Alice, and confirm the available history restores.
+   Temporarily disconnect Alice's network: sending should be unavailable and the
+   draft should survive. Restore the connection and check history before resending.
+6. Check a narrow mobile viewport, scroll older messages while another user sends,
+   and use New messages. Close all room windows, rejoin, and confirm history is empty.
+
+Automated chat coverage is included in `backend/test/collaboration.test.js` and
+`frontend/src/utils/chatState.test.js` and `frontend/src/utils/chatTransport.test.js`, alongside the existing collaboration,
+page, and drawing-history tests. Run `npm test` in each package.
+
+
+## In-app notifications and sounds
+
+Incoming live chat messages show a sender/preview toast and a quiet two-note chime
+when chat is closed or the document is hidden. Click a message notification to open
+chat. When chat is already open in a visible document, both the message toast and
+chime are suppressed. Existing unread behavior remains unchanged. Initial and
+reconnect history loads never trigger notifications.
+
+New collaborators show a join toast and a distinct, subtle ascending tone. Joins
+are deduplicated using an anonymous ID that remains stable for that participant's
+current room visit across Socket.IO reconnects. Names are not used as identity.
+Reloading the page or starting a new room visit creates a new ID; this remains
+unauthenticated presence, not a verified or durable user account. Clients without
+this metadata fall back to their socket ID.
+
+The sound toggle beside Chat shows **On** or **Off** and saves the mute preference
+in localStorage, including synchronizing changes between open tabs. When storage
+is blocked, the toggle still works for the current page. Web Audio is initialized
+or resumed only after a pointer or keyboard interaction in the workspace. Before
+that interaction, or if the browser blocks audio, visual notices continue to work.
+Muted audio stops immediately. Sounds share one context, are throttled to at most
+one tone sequence per 1.2 seconds, and are cleaned up when leaving the workspace.
+No browser notification permissions, audio files, or extra dependencies are used.
+
+The notification stack shows at most three recent notices, below the workspace
+controls and any existing success/error toast. Notices dismiss after five seconds,
+pause while hovered or focused, and support keyboard dismissal. Announcements do
+not move focus, and transitions respect reduced-motion preferences. Notification
+deduplication caches keep at most 1,000 message IDs and 1,000 participant IDs per
+room visit.
+
+To check notifications, keep Alice in a room with chat closed, click somewhere in
+the workspace to enable browser audio, then join as Bob and Carol in separate
+windows. Check the join notices, send messages, click a message toast, and verify
+that further visible-chat messages do not interrupt you. Toggle sound off, refresh,
+and confirm it remains off while visual notices still appear. Test reconnection
+without reloading: presence should return without another join alert. Also check
+a different room, narrow screens, reduced motion, blocked audio, and copying the
+Share link while notices are displayed.

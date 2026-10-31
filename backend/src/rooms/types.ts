@@ -20,10 +20,24 @@ export interface BoardPage {
 export interface RoomUser {
   name: string;
   color: string;
+  participantId: string;
 }
 
 export interface Room {
+  messages: ChatMessage[];
+  chatRequests: Map<string, ChatMessage>;
   pages: BoardPage[];
   users: Map<string, RoomUser>;
   redoStacks: Map<string, Map<string, Stroke[]>>;
+}
+
+export interface ChatMessage {
+  id: string;
+  roomId: string;
+  clientMessageId: string;
+  senderId: string;
+  senderName: string;
+  senderColor: string;
+  text: string;
+  timestamp: string;
 }

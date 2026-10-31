@@ -4,6 +4,11 @@ import { UserPresence } from '../types';
 interface Props {
   users: UserPresence[];
   onInvite: () => void;
+  chatOpen: boolean;
+  unreadCount: number;
+  onToggleChat: () => void;
+  soundMuted: boolean;
+  onToggleSound: () => void;
 }
 
 const MAX_VISIBLE_AVATARS = 3;
@@ -32,7 +37,7 @@ function getAvatarTextColor(color: string) {
   return luminance > 168 ? '#182230' : '#ffffff';
 }
 
-const Collaborators: React.FC<Props> = ({ users, onInvite }) => {
+const Collaborators: React.FC<Props> = ({ users, onInvite, chatOpen, unreadCount, onToggleChat, soundMuted, onToggleSound }) => {
   const visibleUsers = users.slice(0, MAX_VISIBLE_AVATARS);
   const remainingUsers = users.length - visibleUsers.length;
 
@@ -56,6 +61,19 @@ const Collaborators: React.FC<Props> = ({ users, onInvite }) => {
           </span>
         )}
       </div>
+      <button id="chat-toggle" type="button" className="chat-toggle" onClick={onToggleChat}
+        aria-controls="room-chat" aria-expanded={chatOpen}
+        aria-label={`Chat${unreadCount ? `, ${unreadCount} unread message${unreadCount === 1 ? '' : 's'}` : ''}`}>
+        <i className="fa-regular fa-comment" aria-hidden="true" /><span className="chat-toggle-label">Chat</span>
+        {unreadCount > 0 && <span className="chat-unread" aria-hidden="true">{unreadCount}</span>}
+      </button>
+      <button type="button" className={`sound-toggle${soundMuted ? ' is-muted' : ''}`} onClick={onToggleSound}
+        aria-label="Mute notification sounds" aria-pressed={soundMuted}
+        title={soundMuted ? 'Notification sounds muted. Click to unmute.' : 'Notification sounds enabled. Click to mute.'}>
+        <i className={`fa-solid ${soundMuted ? 'fa-volume-xmark' : 'fa-volume-low'}`} aria-hidden="true" />
+        <span className="sound-toggle-state">{soundMuted ? 'Off' : 'On'}</span>
+      </button>
+      <span className="sr-only" role="status">{!chatOpen && unreadCount > 0 ? `${unreadCount} unread chat messages` : ''}</span>
       <button
         type="button"
         onClick={onInvite}

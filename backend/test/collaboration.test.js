@@ -112,9 +112,9 @@ async function connectClient() {
   return socket;
 }
 
-async function joinRoom(socket, roomId, userName, userColor) {
+async function joinRoom(socket, roomId, userName, userColor, participantId) {
   const roomLoaded = waitForEvent(socket, 'load-room');
-  socket.emit('join-room', { roomId, userName, userColor });
+  socket.emit('join-room', { roomId, userName, userColor, participantId });
   const roomState = await roomLoaded;
   initialPageIds.set(roomId, getInitialPage(roomState).id);
   return roomState;
@@ -962,4 +962,192 @@ test('rejects malformed, unjoined, and cross-room room mutations', async () => {
 
   await Promise.all([...clients].map(disconnectClient));
   await waitForEmptyRooms();
+});
+
+function sendChat(socket, roomId, text, clientMessageId = crypto.randomUUID()) {
+  return socket.timeout(EVENT_TIMEOUT_MS).emitWithAck('send-chat-message', { roomId, text, clientMessageId });
+}
+
+test('chat broadcasts to three users, isolates rooms, acknowledges and deduplicates retries', async () => {
+  const roomId = `chat-three-${Date.now()}`;
+  const [alice, bob, carol, outsider] = await Promise.all(Array.from({ length: 4 }, connectClient));
+  await joinRoom(alice, roomId, 'Alice', '#357a72');
+  await joinRoom(bob, roomId, 'Bob', '#c56f45');
+  await joinRoom(carol, roomId, 'Carol', '#7b8c77');
+  await joinRoom(outsider, `${roomId}-other`, 'Outside', '#357a72');
+  const received = [alice, bob, carol].map(socket => waitForEvent(socket, 'chat-message'));
+  let result;
+  await expectNoEvent(outsider, 'chat-message', () => {
+    result = sendChat(alice, roomId, '  Hello\nteam!  ', 'same-request');
+  });
+  const ack = await result;
+  assert.equal(ack.ok, true);
+  const message = ack.message;
+  assert.equal(message.senderId, alice.id);
+  assert.equal(message.senderName, 'Alice');
+  assert.equal(message.senderColor, '#357a72');
+  assert.equal(message.text, 'Hello\nteam!');
+  assert.equal(message.roomId, roomId);
+  assert.ok(Number.isFinite(Date.parse(message.timestamp)));
+  assert.match(message.id, /^[0-9a-f-]{36}$/);
+  for (const event of await Promise.all(received)) assert.deepEqual(event, message);
+  await expectNoEvent(bob, 'chat-message', () => {
+    result = sendChat(alice, roomId, 'Hello\nteam!', 'same-request');
+  });
+  assert.deepEqual(await result, ack);
+  assert.equal((await sendChat(alice, roomId, 'Changed', 'same-request')).error.code, 'ID_CONFLICT');
+  assert.equal((await sendChat(bob, roomId, 'Hello Alice', 'same-request')).ok, true);
+  const late = await connectClient();
+  const snapshot = await joinRoom(late, roomId, 'Late', '#357a72');
+  assert.equal(snapshot.messages.length, 2);
+  assert.deepEqual(snapshot.messages[0], message);
+  const newPage = waitForEvent(alice, 'page-created');
+  createPage(alice, roomId);
+  await newPage;
+  assert.equal((await joinRoom(late, roomId, 'Late', '#357a72')).messages.length, 2);
+});
+
+test('chat rejects unauthorized and malformed payloads without inserting history', async () => {
+  const member = await connectClient();
+  const stranger = await connectClient();
+  const roomId = `chat-invalid-${Date.now()}`;
+  await joinRoom(member, roomId, 'Member', '#357a72');
+  assert.equal((await sendChat(stranger, roomId, 'No access')).error.code, 'NOT_JOINED');
+  const invalid = [null, [], {}, { roomId, text: 'x' },
+    { roomId, text: '', clientMessageId: 'a' }, { roomId, text: ' \n ', clientMessageId: 'a' },
+    { roomId, text: 'x'.repeat(501), clientMessageId: 'a' },
+    { roomId, text: 42, clientMessageId: 'a' }, { roomId, text: 'x', clientMessageId: 'x'.repeat(101) },
+    { roomId, text: 'x', clientMessageId: 'a', senderName: 'Forged' }];
+  for (const payload of invalid) {
+    const ack = await member.timeout(EVENT_TIMEOUT_MS).emitWithAck('send-chat-message', payload);
+    assert.equal(ack.ok, false);
+    assert.equal(ack.error.code, 'INVALID_PAYLOAD');
+  }
+  assert.equal((await joinRoom(member, roomId, 'Member', '#357a72')).messages.length, 0);
+  member.emit('send-chat-message', null, 'bad-ack');
+  assert.equal((await sendChat(member, roomId, 'x'.repeat(500))).ok, true);
+});
+
+test('chat limits each socket across rooms, allows duplicate acknowledgements, and resets after cooldown', async () => {
+  const alice = await connectClient();
+  const bob = await connectClient();
+  const roomId = `chat-rate-${Date.now()}`;
+  await joinRoom(alice, roomId, 'Alice', '#357a72');
+  await joinRoom(alice, `${roomId}-other`, 'Alice', '#357a72');
+  await joinRoom(bob, roomId, 'Bob', '#357a72');
+  const first = await sendChat(alice, roomId, 'First', 'first');
+  for (let i = 0; i < 4; i++) assert.equal((await sendChat(alice, roomId, `Message ${i}`)).ok, true);
+  const limited = await sendChat(alice, `${roomId}-other`, 'Too fast');
+  assert.equal(limited.error.code, 'RATE_LIMITED');
+  assert.ok(limited.error.retryAfterMs > 0 && limited.error.retryAfterMs <= 10_000);
+  assert.deepEqual(await sendChat(alice, roomId, 'First', 'first'), first);
+  assert.equal((await sendChat(bob, roomId, 'Independent quota')).ok, true);
+  await new Promise(resolve => setTimeout(resolve, limited.error.retryAfterMs + 20));
+  assert.equal((await sendChat(alice, roomId, 'After cooldown')).ok, true);
+});
+
+test('chat truncates history, restores after reconnect and is removed with the empty room', async () => {
+  const roomId = `chat-history-${Date.now()}`;
+  const participants = [];
+  for (let i = 0; i < 21; i++) {
+    const socket = await connectClient();
+    participants.push(socket);
+    await joinRoom(socket, roomId, `User ${i}`, '#357a72');
+    for (let j = 0; j < 5; j++) {
+      assert.equal((await sendChat(socket, roomId, `Message ${i * 5 + j}`)).ok, true);
+    }
+  }
+  const late = await connectClient();
+  const snapshot = await joinRoom(late, roomId, 'Late', '#357a72');
+  assert.equal(snapshot.messages.length, 100);
+  assert.equal(snapshot.messages[0].text, 'Message 5');
+  assert.equal(snapshot.messages[99].text, 'Message 104');
+  const oldId = late.id;
+  await disconnectClient(late);
+  const connected = waitForEvent(late, 'connect');
+  late.connect();
+  await connected;
+  assert.notEqual(late.id, oldId);
+  assert.deepEqual((await joinRoom(late, roomId, 'Late', '#357a72')).messages, snapshot.messages);
+  await Promise.all([...participants, late].map(disconnectClient));
+  const fresh = await connectClient();
+  assert.deepEqual((await joinRoom(fresh, roomId, 'Fresh', '#357a72')).messages, []);
+});
+
+test('chat does not leak when a board ID collides with another connection personal room', async () => {
+  const member = await connectClient();
+  const outsider = await connectClient();
+  const roomId = outsider.id;
+  await joinRoom(member, roomId, 'Member', '#357a72');
+  let sending;
+  await expectNoEvent(outsider, 'chat-message', () => {
+    sending = sendChat(member, roomId, 'Only joined members should receive this');
+  });
+  assert.equal((await sending).ok, true);
+});
+
+test('presence carries room and stable session IDs, suppresses repeated joins, and stays room isolated', async () => {
+  const roomId = `notify-presence-${Date.now()}`;
+  const [alice, bob, outsider] = await Promise.all(Array.from({ length: 3 }, connectClient));
+  await joinRoom(alice, roomId, 'Same name', '#357a72', 'alice-session');
+  await joinRoom(outsider, `${roomId}-other`, 'Outside', '#357a72', 'outside-session');
+  const joinedEvent = waitForEvent(alice, 'user-joined');
+  let joining;
+  await Promise.all([
+    expectNoEvent(outsider, 'user-joined', () => {}),
+    expectNoEvent(bob, 'user-joined', () => {
+      joining = joinRoom(bob, roomId, 'Same name', '#c56f45', 'bob-session');
+    })
+  ]);
+  const snapshot = await joining;
+  const joined = await joinedEvent;
+  assert.equal(joined.roomId, roomId);
+  assert.equal(joined.participantId, 'bob-session');
+  assert.equal(joined.userId, bob.id);
+  assert.equal(snapshot.users.length, 2);
+  assert.equal(snapshot.users.find(user => user.isMe).participantId, 'bob-session');
+  let rejoining;
+  await expectNoEvent(alice, 'user-joined', () => {
+    rejoining = joinRoom(bob, roomId, 'Same name', '#c56f45', 'bob-session');
+  });
+  assert.equal((await rejoining).users.length, 2);
+
+  const leaving = waitForEvent(alice, 'user-left');
+  const oldSocketId = bob.id;
+  await disconnectClient(bob);
+  assert.equal((await leaving).roomId, roomId);
+  const connected = waitForEvent(bob, 'connect');
+  bob.connect();
+  await connected;
+  const reconnectJoin = waitForEvent(alice, 'user-joined');
+  const restored = await joinRoom(bob, roomId, 'Renamed participant', '#c56f45', 'bob-session');
+  const reconnected = await reconnectJoin;
+  assert.notEqual(reconnected.userId, oldSocketId);
+  assert.equal(reconnected.participantId, joined.participantId);
+  assert.equal(restored.users.length, 2);
+  // Stable notification identity never changes the ownership of chat messages.
+  assert.equal((await sendChat(bob, roomId, 'After reconnect')).message.senderId, bob.id);
+});
+
+test('presence rejects malformed session metadata and supports legacy clients', async () => {
+  const socket = await connectClient();
+  const roomId = `notify-identity-${Date.now()}`;
+  for (const participantId of ['', '   ', 'x'.repeat(101), 42, {}]) {
+    await expectNoEvent(socket, 'load-room', () => {
+      socket.emit('join-room', { roomId, userName: 'User', userColor: '#357a72', participantId });
+    });
+  }
+  const snapshot = await joinRoom(socket, roomId, 'Legacy client', '#357a72');
+  assert.equal(snapshot.users[0].participantId, socket.id);
+});
+
+test('presence join notifications cannot leak through a colliding personal socket room', async () => {
+  const [member, newcomer, outsider] = await Promise.all(Array.from({ length: 3 }, connectClient));
+  const roomId = outsider.id;
+  await joinRoom(member, roomId, 'Member', '#357a72');
+  let joining;
+  await expectNoEvent(outsider, 'user-joined', () => {
+    joining = joinRoom(newcomer, roomId, 'Newcomer', '#357a72');
+  });
+  assert.equal((await joining).users.length, 2);
 });

@@ -4,6 +4,7 @@ import http from 'http';
 import { Server } from 'socket.io';
 import { getRoomCount } from './rooms/roomStore.js';
 import { registerWhiteboardHandlers } from './socket/registerWhiteboardHandlers.js';
+import { registerChatHandlers } from './socket/registerChatHandlers.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -28,6 +29,7 @@ app.get('/health', (req, res) => {
 
 io.on('connection', socket => {
   registerWhiteboardHandlers(io, socket);
+  registerChatHandlers(io, socket);
 });
 
 const PORT = Number(process.env.PORT) || 3002;

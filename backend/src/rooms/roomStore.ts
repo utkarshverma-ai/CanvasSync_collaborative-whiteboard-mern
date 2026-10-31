@@ -50,6 +50,8 @@ export function getOrCreateRoom(roomId: string): Room {
   let room = rooms.get(roomId);
   if (!room) {
     room = {
+      messages: [],
+      chatRequests: new Map(),
       pages: [createBoardPage()],
       users: new Map(),
       redoStacks: new Map()
