@@ -1,413 +1,125 @@
-# 🎨 CanvasSync
+<h1 align="center">CanvasSync</h1>
 
-### Real-Time Collaborative Whiteboard
+<p align="center">
+  <strong>Real-time collaborative multi-page whiteboard with room chat and collaboration notifications, built with React, TypeScript, Node.js, Express, Socket.IO, and the HTML5 Canvas API.</strong>
+</p>
 
-CanvasSync is a full-stack real-time collaborative whiteboard that allows multiple users to join shared rooms and draw together instantly.
-
-The application uses **React, TypeScript, Node.js, Express.js, Socket.IO, and HTML5 Canvas** to provide synchronized drawing, collaborator presence, room-based sessions, undo/redo functionality, invite sharing, and PNG export.
-
-> Built as a personal full-stack project to explore real-time communication, event-driven systems, shared application state, and WebSocket-based collaboration.
-
----
-
-## 🔗 Live Demo
-
-🌐 **Live Application:**  
-https://canvasync-livid.vercel.app/
-
-💻 **GitHub Repository:**  
-https://github.com/utkarshverma-ai/CanvasSync_collaborative-whiteboard-mern
+<p align="center">
+  <a href="https://canvasync-livid.vercel.app/"><strong>Live Demo</strong></a>
+  ·
+  <a href="#features">Features</a>
+  ·
+  <a href="#architecture">Architecture</a>
+  ·
+  <a href="#getting-started">Run Locally</a>
+</p>
 
 ---
 
-## ✨ Features
+## Overview
 
-### 🤝 Real-Time Collaboration
-- Multiple users can join the same whiteboard room
-- Drawing updates are synchronized using Socket.IO
-- New participants receive the current room state
-- Users can see collaborators joining and leaving the room
+CanvasSync is a real-time collaborative whiteboard where multiple users can join the same room, draw together, create additional board pages, see collaborator presence, undo or redo their own work, exchange room-wide text messages, receive collaboration notifications, share the room, and export the active page as PNG.
 
-### 🖌️ Drawing Experience
-- Freehand pen drawing
-- Eraser tool
-- Custom drawing colors
-- Adjustable brush width
-- Responsive HTML5 Canvas
-
-### ↩️ Undo / Redo
-- Server-authoritative undo for a user's own strokes
-- Server-authoritative collaborative redo with LIFO history
-- Prevents users from undoing another collaborator's strokes
-
-### 🔗 Room-Based Sharing
-- Create a new collaborative workspace
-- Join an existing room using its Room ID
-- Room ID is stored in the URL
-- Copy and share the workspace link with collaborators
-
-### 📤 Export
-- Export the current whiteboard as a PNG image
-
-### 🔄 Connection Handling
-- Automatic Socket.IO reconnection
-- Rejoins the active room after reconnecting
-- Synchronizes room data when users connect
-
----
-
-## 🛠️ Tech Stack
-
-| Area | Technologies |
-|---|---|
-| **Frontend** | React.js, TypeScript, Vite |
-| **Canvas** | HTML5 Canvas API |
-| **Backend** | Node.js, Express.js, TypeScript |
-| **Real-Time Communication** | Socket.IO, WebSockets |
-| **State / Collaboration** | React State, Socket.IO Events |
-| **Deployment** | Vercel + Node.js backend hosting |
-
----
-
-## 🏗️ Architecture
+The project is built around an event-driven client/server model:
 
 ```text
-┌─────────────────────┐
-│   React Frontend    │
-│                     │
-│  HTML5 Canvas       │
-│  Drawing Tools      │
-│  Room UI            │
-│  Collaborators      │
-└─────────┬───────────┘
-          │
-          │ Socket.IO / WebSockets
-          │
-          ▼
-┌─────────────────────┐
-│ Node.js + Express   │
-│ Socket.IO Server    │
-│                     │
-│ Room Management     │
-│ Stroke Sync         │
-│ User Presence       │
-│ Undo Validation     │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│ In-Memory Room      │
-│ State               │
-│                     │
-│ • Users             │
-│ • Strokes           │
-└─────────────────────┘
+React UI
+   ↓
+HTML5 Canvas
+   ↓
+Socket.IO client
+   ↓
+Node.js + Express + Socket.IO server
+   ↓
+Server-authoritative room, page, stroke, presence, drawing history, and chat state
 ```
 
-The backend maintains active rooms in memory and uses Socket.IO events to synchronize users and drawing operations. A room and its strokes are removed when its final participant disconnects.
+CanvasSync focuses on the engineering problems behind collaborative software: synchronized shared state, ownership-aware history, reconnect behavior, page-scoped updates, and real-time event validation.
 
----
+## Features
 
-## ⚡ How Real-Time Synchronization Works
+| Area | What CanvasSync supports |
+| --- | --- |
+| Collaboration | Multiple users in the same room with synchronized drawing |
+| Multi-page boards | Collaborative page creation with up to 50 pages per active room |
+| Drawing | Pen, eraser, custom colors, adjustable brush width |
+| Presence | Join/leave updates and collaborator list without duplicate socket entries |
+| Room chat | Room-isolated text messaging, latest 100 messages, unread counts, and responsive chat panel |
+| Notifications | Message previews, join toasts, subtle Web Audio tones, and persisted mute controls |
+| Undo / redo | Server-authoritative, user-owned, page-scoped history |
+| Sharing | Room ID in the URL and copyable invite link |
+| Export | Export the active page as a PNG |
+| Connection handling | Reconnect attempts, room rejoin, connection-status UI |
+| Validation | Server-side validation of room, page, stroke, history, and chat commands; chat rate limiting and retry deduplication |
+| Testing | Frontend utility tests and backend Socket.IO collaboration tests |
 
-1. A user creates or joins a room.
-2. The frontend establishes a Socket.IO connection.
-3. The client emits a `join-room` event with the Room ID and user information.
-4. The server creates the room if it does not already exist.
-5. Existing strokes and collaborators are sent to the newly joined user.
-6. When a user completes a drawing stroke, the frontend emits `draw-stroke`.
-7. The server stores the stroke in the room state.
-8. The stroke is broadcast to the other users in the room.
-9. Remote clients render the received stroke on their canvas.
+## Real-time collaboration
 
-This creates a synchronized collaborative drawing experience without continuously refreshing the page.
+When a user joins a board:
 
----
+1. The browser opens a Socket.IO connection.
+2. The client emits `join-room` with the room ID and user presence data.
+3. The server creates the room if it does not already exist.
+4. The server returns the room's current pages, strokes, connected users, and latest 100 chat messages.
+5. New drawing strokes are sent to the server with a page ID.
+6. The server validates and stores each stroke in the active room state.
+7. Other participants receive the stroke through `remote-stroke` and render it locally.
 
-## 🔌 Main Socket Events
+This keeps collaborators synchronized without refreshing the page.
 
-| Event | Purpose |
-|---|---|
-| `join-room` | Join or create a collaborative room |
-| `load-room` | Load the room's current pages, users, and latest 100 chat messages |
-| `send-chat-message` | Send room text with a client request ID and acknowledgement |
-| `chat-message` | Receive a server-confirmed room message (including the sender) |
-| `draw-stroke` | Send a completed drawing stroke |
-| `remote-stroke` | Receive another user's stroke |
-| `user-joined` | Notify clients when a collaborator joins |
-| `user-left` | Notify clients when a collaborator leaves |
-| `undo-stroke` | Request removal of a user's own stroke |
-| `undo-stroke-remote` | Synchronize an undo across clients |
-| `redo-stroke` | Request restoration of the user's latest undone stroke |
-| `redo-stroke-remote` | Synchronize a confirmed redo across clients |
+## Multi-page boards
 
----
+A room starts with one board page and collaborators can create more pages during the session.
 
-## 📁 Project Structure
+Page creation is **server-authoritative**:
 
 ```text
-CanvasSync_collaborative-whiteboard-mern/
-│
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── CanvasBoard.tsx
-│   │   │   ├── Collaborators.tsx
-│   │   │   ├── Toolbar.tsx
-│   │   │   └── Whiteboard.tsx
-│   │   ├── hooks/
-│   │   │   └── useRoomSocket.ts
-│   │   ├── utils/
-│   │   │   ├── canvasRenderer.ts
-│   │   │   └── findLatestOwnedStroke.js
-│   │   ├── App.tsx
-│   │   ├── main.tsx
-│   │   └── types.ts
-│   ├── index.html
-│   ├── package.json
-│   └── vite.config.ts
-│
-├── backend/
-│   ├── src/
-│   │   ├── index.ts
-│   │   ├── rooms/
-│   │   │   ├── roomStore.ts
-│   │   │   └── types.ts
-│   │   ├── socket/
-│   │   │   └── registerWhiteboardHandlers.ts
-│   │   └── validation/
-│   │       └── socketValidation.ts
-│   ├── scripts/
-│   │   └── collaboration-smoke-test.js
-│   ├── test/
-│   │   └── collaboration.test.js
-│   └── package.json
-│
-└── README.md
+Client
+  │
+  ├── create-page { roomId, requestId }
+  │
+  ▼
+Socket.IO Server
+  │
+  ├── validates membership + room
+  ├── enforces MAX_PAGES_PER_ROOM
+  ├── creates a UUID-backed page
+  │
+  ▼
+page-created
+  │
+  └── broadcast to every collaborator
 ```
 
----
-
-# 🚀 Getting Started
-
-## Prerequisites
-
-Make sure you have installed:
-
-- Node.js
-- npm
-- Git
-
----
-
-## 1. Clone the repository
-
-```bash
-git clone https://github.com/utkarshverma-ai/CanvasSync_collaborative-whiteboard-mern.git
-```
-
-```bash
-cd CanvasSync_collaborative-whiteboard-mern
-```
-
----
-
-## 2. Start the backend
-
-```bash
-cd backend
-npm ci
-npm run dev
-```
-
-By default, the backend runs on:
+The current server limit is:
 
 ```text
-http://localhost:3002
+50 pages per active room
 ```
 
-You can verify that the server is running using:
+Each page keeps its own stroke collection, and drawing/history operations include the target page ID.
+
+## Undo / redo ownership
+
+Undo and redo are intentionally not purely local UI operations.
+
+Each stroke is associated with the Socket.IO connection that created it. When an undo request reaches the server, the server verifies:
+
+- the room exists;
+- the socket belongs to the room;
+- the page exists;
+- the requested stroke exists;
+- the stroke belongs to the requesting socket.
+
+Only then is the stroke removed and the update broadcast.
+
+Redo history is also maintained per:
 
 ```text
-http://localhost:3002/health
+user/socket → page → redo stack
 ```
 
----
-
-## 3. Start the frontend
-
-Open another terminal:
-
-```bash
-cd frontend
-cp .env.example .env
-npm ci
-npm run dev
-```
-
-Vite will display the local frontend URL in your terminal.
-
----
-
-## ⚙️ Environment Configuration
-
-Inside the frontend environment file:
-
-```env
-VITE_API_URL=http://localhost:3002
-```
-
-For deployment, replace the local URL with your deployed Socket.IO backend URL.
-
-The backend also supports:
-
-```env
-FRONTEND_URL=<your-frontend-url>
-PORT=<server-port>
-```
-
----
-
-## ✅ Verification
-
-Run the automated checks from each package:
-
-```bash
-cd frontend
-npm test
-npm run build
-```
-
-```bash
-cd backend
-npm run build
-npm test
-npm run start
-```
-
-`npm run start` runs the compiled backend from `dist/`.
-
----
-
-# 🧪 Collaboration Testing
-
-The backend contains a basic Socket.IO collaboration test script that simulates two users joining the same room and exchanging drawing strokes.
-
-Start the backend first and then run:
-
-```bash
-cd backend
-node scripts/collaboration-smoke-test.js
-```
-
-The script checks whether connected clients can receive one another's drawing events.
-
----
-
-# 🧠 Key Engineering Concepts Used
-
-CanvasSync helped me work with several important software engineering concepts:
-
-- Real-time bidirectional communication
-- WebSockets and Socket.IO
-- Event-driven architecture
-- Client-server synchronization
-- Shared room state
-- React state management
-- HTML5 Canvas rendering
-- Reconnection handling
-- User presence
-- TypeScript interfaces
-- Express.js server development
-- Responsive UI interactions
-- Multi-user application behaviour
-
----
-
-# 🔐 Undo Ownership
-
-CanvasSync associates every drawing stroke with the Socket.IO connection that created it.
-
-When an undo request reaches the server, the server verifies that the requested stroke belongs to that connected user before removing it.
-
-This prevents one collaborator from using the synchronized undo operation to remove another user's drawing.
-
----
-
-# 📦 Current Project Scope
-
-CanvasSync currently keeps active room information in the **Node.js server's memory**.
-
-This includes:
-
-- Connected users
-- Drawing strokes
-- Active rooms
-
-When a room becomes empty, its server-side state is removed.
-
-Therefore, the current version provides **session-level collaboration rather than permanent database-backed persistence**.
-
----
-
-# ⚠️ Current Limitations
-
-- Room state is in memory and is removed after the last participant leaves.
-- The application runs as a single server process; state is not shared between server instances.
-- Identity is scoped to the current Socket.IO connection; there is no authentication, durable user identity, or private room access. Chat has a basic per-connection rate limit; other events do not.
-
----
-
-# 🔮 Future Improvements
-
-Potential improvements include:
-
-- MongoDB or PostgreSQL persistence
-- User authentication
-- Permanent saved whiteboards
-- Named workspaces
-- Text tool
-- Image insertion
-- Improved shape tools
-- Cursor presence
-- Zoom and pan
-- Version history
-- Role-based room permissions
-- Redis-based scaling for multiple Socket.IO servers
-- Whiteboard sharing dashboard
-
----
-
-# 🎯 Why I Built CanvasSync
-
-I wanted to build something beyond a traditional CRUD application and understand how multiple clients can interact with the same application state in real time.
-
-CanvasSync allowed me to work directly with:
-
-**React UI → HTML5 Canvas → Socket.IO client → Node/Express server → real-time room events**
-
-and understand challenges such as synchronization, reconnection, user presence, event ownership, and state consistency.
-
----
-
-# 👨‍💻 Author
-
-**Utkarsh Verma**
-
-B.Tech Computer Science & Engineering  
-GLA University
-
-- GitHub: https://github.com/utkarshverma-ai
-- LinkedIn: Add your LinkedIn URL here
-
----
-
-## ⭐ Support
-
-If you find CanvasSync interesting, consider giving the repository a ⭐.
-
-Feedback and suggestions are welcome.
-
+This prevents one collaborator from undoing another collaborator's drawing and avoids mixing history between board pages.
 
 ## Room chat (V1)
 
@@ -438,25 +150,38 @@ can join; participant names and colors are self-selected and are not verified
 identities. The server derives chat sender metadata from that joined membership.
 This V1 assumes a single backend process, as does the rest of room state.
 
-To verify manually:
+### Chat protocol and server validation
 
-1. Start the backend and frontend using the commands above.
-2. Join a room as Alice, use Share, and open that link in two other browser windows
-   or profiles as Bob and Carol. Open Chat in each and exchange messages.
-3. Close Carol's panel, send from Alice, and check Carol's unread count. Reopen it
-   and confirm the count clears. Try Enter, Shift+Enter, Escape, and blank input.
-4. Add a whiteboard page: the conversation should stay shared. Draw, undo, redo,
-   and use Share while chat is open. Join a different room and verify isolation.
-5. Leave Bob connected, refresh Alice, and confirm the available history restores.
-   Temporarily disconnect Alice's network: sending should be unavailable and the
-   draft should survive. Restore the connection and check history before resending.
-6. Check a narrow mobile viewport, scroll older messages while another user sends,
-   and use New messages. Close all room windows, rejoin, and confirm history is empty.
+Chat reuses the existing Socket.IO connection and room membership; it has no page ID.
+The client sends `send-chat-message` with `{ roomId, clientMessageId, text }` and an
+acknowledgement callback. The request ID must be a non-empty string of at most 100
+characters. The raw text must be no longer than 500 characters; the server trims
+it and rejects empty or whitespace-only messages. Unsupported payload fields,
+including client-supplied sender metadata, are rejected.
 
-Automated chat coverage is included in `backend/test/collaboration.test.js` and
-`frontend/src/utils/chatState.test.js` and `frontend/src/utils/chatTransport.test.js`, alongside the existing collaboration,
-page, and drawing-history tests. Run `npm test` in each package.
+The server checks both socket membership and the room's user map, then generates
+the message UUID and ISO timestamp. Sender ID, name, and collaborator color come
+from that server-side membership. An accepted message contains `id`, `roomId`,
+`clientMessageId`, `senderId`, `senderName`, `senderColor`, `text`, and `timestamp`.
+It is emitted as `chat-message` to every joined participant, including the sender.
 
+Acknowledgements have one of these shapes:
+
+```ts
+type ChatAcknowledgement =
+  | { ok: true; message: ChatMessage }
+  | { ok: false; error: { code: string; message: string; retryAfterMs?: number } };
+```
+
+Error codes are `INVALID_PAYLOAD`, `NOT_JOINED`, `RATE_LIMITED`, and `ID_CONFLICT`.
+Rate-limit errors include `retryAfterMs`. Reusing a cached request ID with the same
+trimmed text returns the original message without another broadcast or consuming
+another rate-limit slot; changing the text for that ID returns `ID_CONFLICT`.
+The 500-entry request cache is separate from the 100-message visible history, so
+recent retries can still be recognized after a message leaves visible history.
+The client waits up to four seconds for an acknowledgement and retries once on the
+same connection. Live broadcasts and acknowledgements are deduplicated by server
+message ID in the UI.
 
 ## In-app notifications and sounds
 
@@ -489,11 +214,430 @@ not move focus, and transitions respect reduced-motion preferences. Notification
 deduplication caches keep at most 1,000 message IDs and 1,000 participant IDs per
 room visit.
 
-To check notifications, keep Alice in a room with chat closed, click somewhere in
-the workspace to enable browser audio, then join as Bob and Carol in separate
-windows. Check the join notices, send messages, click a message toast, and verify
-that further visible-chat messages do not interrupt you. Toggle sound off, refresh,
-and confirm it remains off while visual notices still appear. Test reconnection
-without reloading: presence should return without another join alert. Also check
-a different room, narrow screens, reduced motion, blocked audio, and copying the
-Share link while notices are displayed.
+## Architecture
+
+```text
+┌────────────────────────────────────┐
+│ React + TypeScript Frontend        │
+│                                    │
+│ Landing / Room UI                  │
+│ Multi-page board                   │
+│ HTML5 Canvas renderer              │
+│ Toolbar + collaborators            │
+│ Room chat + unread counts          │
+│ Toasts + Web Audio + mute control  │
+│ Local interaction state            │
+└─────────────────┬──────────────────┘
+                  │
+                  │ Socket.IO
+                  │
+                  ▼
+┌────────────────────────────────────┐
+│ Node.js + Express + TypeScript     │
+│ Socket.IO Server                   │
+│                                    │
+│ Room membership                    │
+│ Page creation                      │
+│ Stroke validation + sync           │
+│ Presence                           │
+│ Undo / redo ownership              │
+│ Chat validation + rate limiting    │
+│ Acknowledgements + deduplication   │
+└─────────────────┬──────────────────┘
+                  │
+                  ▼
+┌────────────────────────────────────┐
+│ In-memory active room state        │
+│                                    │
+│ rooms                              │
+│ ├── pages                          │
+│ │   └── strokes                    │
+│ ├── users                          │
+│ ├── per-user/page redo stacks      │
+│ ├── latest 100 chat messages       │
+│ └── latest 500 chat request entries│
+└────────────────────────────────────┘
+```
+
+### Source layout
+
+```text
+CanvasSync_collaborative-whiteboard-mern/
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── BoardPages.tsx
+│   │   │   ├── CanvasBoard.tsx
+│   │   │   ├── CanvasPage.tsx
+│   │   │   ├── CanvasSyncLogo.tsx
+│   │   │   ├── ChatPanel.tsx
+│   │   │   ├── Collaborators.tsx
+│   │   │   ├── LandingSections.tsx
+│   │   │   ├── RoomNotifications.tsx
+│   │   │   ├── Toolbar.tsx
+│   │   │   └── Whiteboard.tsx
+│   │   ├── hooks/
+│   │   │   ├── useRoomNotifications.ts
+│   │   │   └── useRoomSocket.ts
+│   │   ├── utils/
+│   │   │   ├── canvasRenderer.ts
+│   │   │   ├── appendPage.js
+│   │   │   ├── appendStrokeToPage.js
+│   │   │   ├── chatState.js
+│   │   │   ├── chatState.test.js
+│   │   │   ├── chatTransport.js
+│   │   │   ├── chatTransport.test.js
+│   │   │   ├── findLatestOwnedStroke.js
+│   │   │   ├── notificationAudio.js
+│   │   │   ├── notificationAudio.test.js
+│   │   │   ├── roomNotifications.js
+│   │   │   ├── roomNotifications.test.js
+│   │   │   ├── pageCreation.js
+│   │   │   └── pageHistory.js
+│   │   ├── App.tsx
+│   │   ├── main.tsx
+│   │   └── types.ts
+│   ├── index.html
+│   ├── package.json
+│   └── vite.config.ts
+│
+├── backend/
+│   ├── src/
+│   │   ├── index.ts
+│   │   ├── rooms/
+│   │   │   ├── roomStore.ts
+│   │   │   └── types.ts
+│   │   ├── socket/
+│   │   │   ├── registerChatHandlers.ts
+│   │   │   └── registerWhiteboardHandlers.ts
+│   │   └── validation/
+│   │       └── socketValidation.ts
+│   ├── scripts/
+│   │   └── collaboration-smoke-test.js
+│   ├── test/
+│   │   └── collaboration.test.js
+│   └── package.json
+│
+└── README.md
+```
+
+## Tech stack
+
+### Frontend
+
+- React 19
+- TypeScript
+- Vite
+- HTML5 Canvas API
+- Native Web Audio API
+- Socket.IO Client
+- Tailwind CSS 4
+
+### Backend
+
+- Node.js
+- Express
+- TypeScript
+- Socket.IO
+- CORS
+
+### State model
+
+CanvasSync currently uses **in-memory server state** for active collaboration sessions.
+
+Despite the repository's historical `mern` name, the current implementation does **not** use MongoDB or another persistent database.
+
+## Main Socket.IO events
+
+| Event | Direction | Purpose |
+| --- | --- | --- |
+| `join-room` | Client → Server | Join or create a room with presence data and an optional anonymous participant ID |
+| `load-room` | Server → Client | Send current pages, strokes, users, and latest 100 chat messages |
+| `send-chat-message` | Client → Server | Submit room text and a client request ID; receive a structured acknowledgement |
+| `chat-message` | Server → Room | Deliver a server-confirmed message to all joined participants, including its sender |
+| `create-page` | Client → Server | Request a new board page |
+| `page-created` | Server → Room | Synchronize a created page |
+| `page-create-rejected` | Server → Client | Reject page creation, e.g. page limit reached |
+| `draw-stroke` | Client → Server | Submit a completed page stroke |
+| `remote-stroke` | Server → Peers | Broadcast another user's stroke |
+| `user-joined` | Server → Peers | Announce a new socket membership with room ID and anonymous participant ID |
+| `user-left` | Server → Room | Announce a collaborator leaving, including the room ID |
+| `undo-stroke` | Client → Server | Request ownership-validated undo |
+| `undo-stroke-remote` | Server → Room | Synchronize confirmed undo |
+| `redo-stroke` | Client → Server | Request restoration from redo history |
+| `redo-stroke-remote` | Server → Room | Synchronize confirmed redo |
+
+## Connection behavior
+
+The Socket.IO client is configured to reconnect automatically.
+
+When the connection returns:
+
+- CanvasSync updates the connection-status UI;
+- the client rejoins the current room;
+- the server sends the current room state, including available chat history, again;
+- loaded chat history never produces message sounds or toasts;
+- stale disconnected history commands remain unavailable until the socket is connected.
+
+This helps avoid applying undo/redo operations after a temporary disconnect against outdated local assumptions. Chat waits for the room snapshot before sending and does not queue offline sends. The anonymous participant ID used for join-notification deduplication survives socket reconnects during the room visit; message and stroke ownership still use the current socket ID.
+
+## Getting started
+
+### Prerequisites
+
+Install:
+
+- Node.js
+- npm
+- Git
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/utkarshverma-ai/CanvasSync_collaborative-whiteboard-mern.git
+cd CanvasSync_collaborative-whiteboard-mern
+```
+
+### 2. Start the backend
+
+```bash
+cd backend
+npm ci
+npm run dev
+```
+
+Default development server:
+
+```text
+http://localhost:3002
+```
+
+Health endpoint:
+
+```text
+http://localhost:3002/health
+```
+
+### 3. Configure and start the frontend
+
+Open another terminal:
+
+```bash
+cd frontend
+cp .env.example .env
+npm ci
+npm run dev
+```
+
+Set:
+
+```env
+VITE_API_URL=http://localhost:3002
+```
+
+For a deployed frontend, point `VITE_API_URL` to the deployed Socket.IO backend.
+
+### Backend environment
+
+The backend supports:
+
+```env
+FRONTEND_URL=<your-frontend-url>
+PORT=<server-port>
+```
+
+## Scripts and verification
+
+### Frontend
+
+Run from `frontend/`:
+
+```bash
+npm test
+npx tsc --noEmit
+npm run build
+npm run dev
+npm run preview
+```
+
+The current frontend test command covers ownership/history/page utility behavior, including:
+
+- latest owned stroke selection;
+- page-scoped stroke updates;
+- page history helpers;
+- page appending;
+- collaborative page-creation helpers;
+- chat snapshots, unread counts, deduplication, keyboard and scroll decisions;
+- chat acknowledgement retries, disconnected sends, and connection changes;
+- live notification filtering, join identity, cross-room isolation, and bounded toast queues;
+- mute preference, blocked audio, tone throttling, and audio resource cleanup.
+
+### Backend
+
+Run from `backend/`:
+
+```bash
+npm test
+npx tsc --noEmit
+npm run build
+npm run start
+```
+
+The backend test suite starts its own Socket.IO server and exercises drawing, pages, presence, undo/redo, three-user chat delivery, room isolation, validation, acknowledgements, retry deduplication, rate-limit cooldown, 100-message history truncation, late joins, reconnects, and empty-room cleanup. It also checks stable join metadata and duplicate-join suppression.
+
+The current suites contain **48 frontend tests** and **25 backend tests**. Frontend tests use Node's built-in test runner and cover utility behavior; browser interaction and actual audio playback also need manual verification. `npm run start` runs the compiled backend from `dist/`.
+
+There is also a collaboration smoke-test script:
+
+```bash
+cd backend
+node scripts/collaboration-smoke-test.js
+```
+
+Start the backend before running the smoke test.
+
+### Manual collaboration, chat, and notification verification
+
+1. Start the backend and frontend as described above. Join a room as Alice, use
+   Share, and open its link in two other browser windows or profiles as Bob and
+   Carol. Verify collaborator counts and exchange messages with Chat open.
+2. Close Carol's panel, send from Alice, and check Carol's unread count and sender
+   preview toast. Click the toast to open chat; verify unread clears. Try Enter,
+   Shift+Enter, Escape, blank input, and the 500-character limit.
+3. Interact with Alice's workspace to allow browser audio, then join as another
+   participant. Check the distinct join tone and message chime. While chat is open
+   in a visible document, new messages should not trigger distracting alerts.
+4. Toggle sounds off, refresh, and confirm the preference remains off while visual
+   notices still work. Check keyboard focus, toast dismissal and pausing, reduced
+   motion, narrow viewports, and visual fallback when audio is blocked.
+5. Add a whiteboard page: chat must remain shared across pages. Draw, undo, redo,
+   export the active page, and copy the Share link while chat or notices are shown.
+   Join a different room and verify chat and notifications stay isolated.
+6. Keep Bob connected and refresh Alice to confirm available history restores
+   silently. Temporarily disconnect Alice's network without reloading: sending
+   should be unavailable, the draft should survive, and reconnecting should not
+   produce another join alert for the same visit. Check restored history before
+   resending a message whose delivery was unconfirmed.
+7. Scroll older messages while another participant sends; the view should stay in
+   place until you choose New messages. Close every window for that room, rejoin,
+   and confirm its history has been deleted.
+
+## Deployment
+
+Live frontend:
+
+**https://canvasync-livid.vercel.app/**
+
+The frontend can be deployed to Vercel. The Socket.IO backend must run on a Node-compatible host that supports long-lived real-time connections.
+
+Set the deployed frontend's:
+
+```env
+VITE_API_URL=<deployed-backend-url>
+```
+
+and configure the backend's:
+
+```env
+FRONTEND_URL=<deployed-frontend-url>
+```
+
+so CORS allows the production client.
+
+## Current scope and limitations
+
+CanvasSync currently provides **session-level collaboration**, not durable whiteboard persistence.
+
+Important limitations:
+
+- active room state is held in one Node.js process;
+- when the final participant leaves a room, that room is deleted from server memory;
+- restarting the backend clears active rooms;
+- state is not shared between multiple backend instances;
+- there is no database-backed saved-board history;
+- there is no authentication or durable user identity;
+- identity/ownership is scoped to the active Socket.IO connection;
+- there is no authenticated or private room access; anyone with a room ID can join, although commands validate socket membership;
+- chat has a per-socket limit of five accepted messages per ten seconds; other socket events are not rate limited;
+- only the latest 100 chat messages and 500 chat retry entries per active room are retained;
+- chat retry deduplication is bounded and scoped to the same room and socket, not a durable identity;
+- sounds require browser interaction and may be blocked; in-app visual notifications remain available;
+- mute preferences persist only when localStorage is available; anonymous join IDs last for the current room visit;
+- page count is currently limited to 50 per active room.
+
+These constraints keep the current architecture focused on real-time collaboration and make the scaling boundaries explicit.
+
+## Engineering concepts demonstrated
+
+CanvasSync exercises:
+
+- real-time bidirectional communication;
+- WebSockets and Socket.IO;
+- event-driven architecture;
+- client/server state synchronization;
+- multi-user presence;
+- page-scoped collaborative state;
+- server-authoritative commands;
+- ownership-aware undo/redo;
+- reconnection and rejoin behavior;
+- HTML5 Canvas rendering;
+- TypeScript domain modeling;
+- validation of socket payloads;
+- responsive collaborative UI;
+- automated utility and Socket.IO integration testing.
+
+## Roadmap
+
+Possible next steps:
+
+- PostgreSQL or MongoDB persistence for saved boards;
+- authenticated users and durable ownership;
+- permanent shareable whiteboards;
+- Redis adapter for horizontal Socket.IO scaling;
+- cursor presence;
+- zoom and pan;
+- text and shape tools;
+- image insertion;
+- page rename/reorder/delete;
+- version history;
+- room roles and permissions;
+- file/export enhancements;
+- broader rate limiting and abuse protection.
+
+## Why I built CanvasSync
+
+I wanted to build something beyond a traditional CRUD application and understand how multiple clients can safely mutate the same shared state in real time.
+
+CanvasSync let me work directly with the problems behind collaborative applications:
+
+```text
+React interaction
+      ↓
+Canvas rendering
+      ↓
+Socket event
+      ↓
+Server validation
+      ↓
+Authoritative room update
+      ↓
+Broadcast
+      ↓
+Remote render
+```
+
+The most interesting parts are not only drawing on a canvas, but coordinating ownership, page state, reconnection, ordering, and history across multiple connected users.
+
+## Author
+
+**Utkarsh Verma**
+
+Built as a full-stack real-time systems project focused on collaborative state synchronization, Socket.IO architecture, and product-quality whiteboard interactions.
+
+- GitHub: https://github.com/utkarshverma-ai
+
+---
+
+<p align="center">
+  <strong>CanvasSync · Real-time collaboration, one board at a time.</strong>
+</p>
