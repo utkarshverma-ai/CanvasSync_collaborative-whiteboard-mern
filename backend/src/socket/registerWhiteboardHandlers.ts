@@ -13,25 +13,35 @@ export function registerWhiteboardHandlers(io: Server, socket: Socket) {
     socket.join(roomId);
 
     const room = getOrCreateRoom(roomId);
-    room.users.set(socket.id, { name: userName, color: userColor });
+    const alreadyJoined = room.users.has(socket.id);
+    // This anonymous session key is for notification deduplication, never access
+    // control or stroke/chat ownership (which remain tied to socket.id).
+    const participantId = joinData.participantId ?? socket.id;
+    room.users.set(socket.id, { name: userName, color: userColor, participantId });
 
     console.log(`${userName} joined room ${roomId}`);
 
     socket.emit('load-room', {
+      messages: room.messages,
       pages: room.pages,
       users: Array.from(room.users.entries()).map(([id, user]) => ({
         id,
         name: user.name,
         color: user.color,
+        participantId: user.participantId,
         isMe: id === socket.id
       }))
     });
 
-    socket.to(roomId).emit('user-joined', {
-      userId: socket.id,
-      userName,
-      userColor
-    });
+    if (!alreadyJoined) {
+      for (const memberId of room.users.keys()) {
+        if (memberId === socket.id) continue;
+        const member = io.sockets.sockets.get(memberId);
+        if (member?.rooms.has(roomId)) member.emit('user-joined', {
+          roomId, participantId, userId: socket.id, userName, userColor
+        });
+      }
+    }
   });
 
   socket.on('create-page', (data: unknown) => {
@@ -128,6 +138,7 @@ export function registerWhiteboardHandlers(io: Server, socket: Socket) {
       room.redoStacks.delete(socket.id);
 
       io.to(roomId).emit('user-left', {
+        roomId,
         userId: socket.id,
         userName
       });

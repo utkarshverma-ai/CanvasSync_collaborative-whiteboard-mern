@@ -3,14 +3,18 @@ import { CanvasBoardHandle } from './CanvasBoard';
 import BoardPages from './BoardPages';
 import CanvasSyncLogo from './CanvasSyncLogo';
 import Collaborators from './Collaborators';
+import ChatPanel from './ChatPanel';
+import RoomNotifications from './RoomNotifications';
 import Toolbar from './Toolbar';
 import { useRoomSocket } from '../hooks/useRoomSocket';
-import { BoardPage, PageCreatedPayload, PageStrokeCommandPayload, PageStrokePayload, Stroke, Tool, UserPresence } from '../types';
+import { useRoomNotifications } from '../hooks/useRoomNotifications';
+import { BoardPage, PageCreatedPayload, PageStrokeCommandPayload, PageStrokePayload, Stroke, Tool, UserJoinedPayload, UserPresence } from '../types';
 import { appendStrokeToPage } from '../utils/appendStrokeToPage';
 import { appendPage } from '../utils/appendPage';
 import { findLatestOwnedStroke } from '../utils/findLatestOwnedStroke';
 import { removeStrokeFromPage, restoreStrokeToPage } from '../utils/pageHistory';
 import { isLocalPageCreation } from '../utils/pageCreation';
+import { upsertCollaborator } from '../utils/roomNotifications';
 
 interface WhiteboardProps {
   roomId: string;
@@ -40,6 +44,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     { id: 'me', name: userName, color: userColorRef.current, isMe: true }
   ]);
   const [notification, setNotification] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const { notices, announcement, notify, dismiss, dismissMessages, soundMuted, toggleSound } = useRoomNotifications();
   const pendingUndoRef = useRef<PageHistoryEntry | null>(null);
   const pendingRedoRef = useRef<PageHistoryEntry | null>(null);
   const pendingPageRequestIdRef = useRef<string | null>(null);
@@ -81,11 +86,8 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     setPages(previousPages => appendStrokeToPage(previousPages, pageId, stroke));
   }, []);
 
-  const handleUserJoined = useCallback((data: { userId: string; userName: string; userColor: string }) => {
-    setCollaborators(previousUsers => [
-      ...previousUsers,
-      { id: data.userId, name: data.userName, color: data.userColor, isMe: false }
-    ]);
+  const handleUserJoined = useCallback((data: UserJoinedPayload) => {
+    setCollaborators(previousUsers => upsertCollaborator(previousUsers, data));
   }, []);
 
   const handleUserLeft = useCallback((data: { userId: string }) => {
@@ -113,7 +115,8 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     }
   }, []);
 
-  const { userIdRef, requestPageCreation, emitCompletedStroke, requestUndo, requestRedo, isSocketAvailable, connectionStatus } = useRoomSocket({
+  const { userIdRef, requestPageCreation, emitCompletedStroke, requestUndo, requestRedo, isSocketAvailable, connectionStatus,
+    chat, ownSenderIds, setChatOpen, sendChatMessage } = useRoomSocket({
     roomId,
     userName,
     userColor: userColorRef.current,
@@ -123,9 +126,24 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
     onRemoteStroke: handleRemoteStroke,
     onUserJoined: handleUserJoined,
     onUserLeft: handleUserLeft,
+    onRoomNotice: notify,
     onUndoConfirmed: handleUndoConfirmed,
     onRedoConfirmed: handleRedoConfirmed
   });
+
+  const openChatFromNotice = useCallback(() => {
+    setChatOpen(true);
+    dismissMessages();
+  }, [setChatOpen, dismissMessages]);
+
+  useEffect(() => {
+    const clearVisibleMessages = () => {
+      if (chat.open && document.visibilityState !== 'hidden') dismissMessages();
+    };
+    clearVisibleMessages();
+    document.addEventListener('visibilitychange', clearVisibleMessages);
+    return () => document.removeEventListener('visibilitychange', clearVisibleMessages);
+  }, [chat.open, dismissMessages]);
 
   const getUserId = useCallback(() => userIdRef.current, [userIdRef]);
 
@@ -254,13 +272,16 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
   };
 
   return (
-    <div className="canvas-container workspace-shell">
-      {notification && (
-        <div className={`workspace-toast ${notification.type === 'success' ? 'is-success' : 'is-error'}`} role="status">
-          <i className={`fa-solid ${notification.type === 'success' ? 'fa-check' : 'fa-triangle-exclamation'}`} aria-hidden="true"></i>
-          {notification.msg}
-        </div>
-      )}
+    <div className={`canvas-container workspace-shell${chat.open ? ' has-chat-open' : ''}`}>
+      <div className="workspace-feedback">
+        {notification && (
+          <div className={`workspace-toast ${notification.type === 'success' ? 'is-success' : 'is-error'}`} role="status">
+            <i className={`fa-solid ${notification.type === 'success' ? 'fa-check' : 'fa-triangle-exclamation'}`} aria-hidden="true"></i>
+            {notification.msg}
+          </div>
+        )}
+        <RoomNotifications notices={notices} announcement={announcement} onDismiss={dismiss} onOpenChat={openChatFromNotice} />
+      </div>
       <header className="workspace-header">
         <div className="workspace-brand">
           <CanvasSyncLogo className="workspace-brand-logo" size={40} showWordmark />
@@ -304,7 +325,10 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ roomId, userName }) => {
         redo={redo}
         exportPng={exportPng}
       />
-      <Collaborators users={collaborators} onInvite={inviteCollaborator} />
+      <Collaborators users={collaborators} onInvite={inviteCollaborator} chatOpen={chat.open}
+        unreadCount={chat.unread} onToggleChat={() => setChatOpen(!chat.open)} soundMuted={soundMuted} onToggleSound={toggleSound} />
+      <ChatPanel open={chat.open} messages={chat.messages} ownSenderIds={ownSenderIds}
+        connectionStatus={connectionStatus} loaded={chat.loaded} onClose={() => setChatOpen(false)} onSend={sendChatMessage} />
     </div>
   );
 };

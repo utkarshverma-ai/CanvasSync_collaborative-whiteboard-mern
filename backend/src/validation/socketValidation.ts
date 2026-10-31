@@ -16,6 +16,7 @@ interface JoinRoomPayload {
   roomId: string;
   userName: string;
   userColor: string;
+  participantId?: string;
 }
 
 interface StrokeCommandPayload {
@@ -39,6 +40,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+export function parseChatPayload(value: unknown): { roomId: string; clientMessageId: string; text: string } | null {
+  if (!isRecord(value) || Object.keys(value).some(key => !['roomId', 'clientMessageId', 'text'].includes(key))) return null;
+  if (!isValidRoomId(value.roomId) || !isBoundedNonEmptyString(value.clientMessageId, 100)) return null;
+  if (typeof value.text !== 'string' || value.text.length > 500 || !value.text.trim()) return null;
+  return { roomId: value.roomId, clientMessageId: value.clientMessageId, text: value.text.trim() };
+}
+
 function isBoundedNonEmptyString(value: unknown, maxLength: number): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= maxLength;
 }
@@ -54,7 +62,7 @@ export function isValidPageId(value: unknown): value is string {
 export function parseJoinRoomPayload(value: unknown): JoinRoomPayload | null {
   if (!isRecord(value)) return null;
 
-  const { roomId, userName, userColor } = value;
+  const { roomId, userName, userColor, participantId } = value;
   if (!isValidRoomId(roomId) || !isBoundedNonEmptyString(userName, MAX_USERNAME_LENGTH)) {
     return null;
   }
@@ -62,7 +70,8 @@ export function parseJoinRoomPayload(value: unknown): JoinRoomPayload | null {
     return null;
   }
 
-  return { roomId, userName, userColor };
+  if (participantId !== undefined && !isBoundedNonEmptyString(participantId, 100)) return null;
+  return { roomId, userName, userColor, participantId: participantId as string | undefined };
 }
 
 export function parseStrokeCommandPayload(value: unknown): StrokeCommandPayload | null {

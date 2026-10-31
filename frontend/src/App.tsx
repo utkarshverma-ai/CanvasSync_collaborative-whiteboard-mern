@@ -175,7 +175,7 @@ const App: React.FC = () => {
     );
   }
 
-  return <Whiteboard roomId={roomId!} userName={userName} />;
+  return <Whiteboard key={roomId} roomId={roomId!} userName={userName} />;
 };
 
 export default App;
